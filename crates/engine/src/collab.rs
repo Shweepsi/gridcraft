@@ -60,8 +60,15 @@ fn content(wb: &Workbook, cell: Option<&Cell>) -> Option<CellContent> {
 fn diff_sheet(old_wb: &Workbook, old: Option<&Sheet>, new_wb: &Workbook, new: &Sheet, out: &mut Vec<CellChange>) {
     let mut push = |at: CellRef, c: Option<CellContent>| out.push(CellChange { sheet: new.name.clone(), cell: at.a1(), c });
     for (at, cell) in new.cells.iter() {
+        let before = old.and_then(|o| o.cells.get(at));
+        // Style ids keep their meaning from one snapshot of a document to the next (the table
+        // only grows), so a cell equal to what it was needs no content built: that is nearly
+        // every cell of the sheet, on every edit.
+        if before == Some(cell) {
+            continue;
+        }
         let now = content(new_wb, Some(cell));
-        let was = old.and_then(|o| content(old_wb, o.cells.get(at)));
+        let was = before.and_then(|b| content(old_wb, Some(b)));
         if now != was {
             push(at, now);
         }
@@ -75,9 +82,10 @@ fn diff_sheet(old_wb: &Workbook, old: Option<&Sheet>, new_wb: &Workbook, new: &S
     }
 }
 
-/// The cells whose content differs between `old` and `new`, sheets matched by name. Sheets
-/// shared by both snapshots (the same `Arc`) are skipped without looking at their cells, so the
-/// cost is the size of the sheets an edit actually touched.
+/// The cells whose content differs between `old` and `new`, two snapshots of one document
+/// (style ids are compared as such), sheets matched by name. Sheets shared by both snapshots
+/// (the same `Arc`) are skipped without looking at their cells, so the cost is the size of the
+/// sheets an edit actually touched.
 pub fn diff(old: &Workbook, new: &Workbook) -> Vec<CellChange> {
     let mut out = Vec::new();
     for sheet in &new.sheets {
