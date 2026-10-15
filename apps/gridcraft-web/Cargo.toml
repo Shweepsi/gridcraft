@@ -1,6 +1,6 @@
 [package]
 name = "gridcraft-web"
-description = "GridCraft in the browser (eframe web runner, WebGPU with WebGL2 fallback)"
+description = "GridCraft in the browser (eframe web runner; WebGPU with WebGL2 fallback, or WebGL2 only)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,6 +8,15 @@ publish = false
 
 [lints]
 workspace = true
+
+[features]
+default = ["renderer-wgpu"]
+# WebGPU where the browser has it, WebGL2 through wgpu otherwise.
+renderer-wgpu = ["eframe/wgpu"]
+# WebGL2 straight through glow: no wgpu or naga in the binary (a smaller
+# download, less to compile) and no shader translation when the page starts.
+# Build with `--no-default-features --features renderer-glow`.
+renderer-glow = ["eframe/glow"]
 
 [[bin]]
 name = "gridcraft-web"
@@ -21,7 +30,7 @@ log = { workspace = true }
 serde_json = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit"] }
+eframe = { workspace = true, features = ["default_fonts", "accesskit"] }
 rfd = { workspace = true }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

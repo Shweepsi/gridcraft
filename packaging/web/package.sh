@@ -17,7 +17,12 @@ if [ "${1:-}" != "--skip-build" ]; then
   [ -f "$ROOT/apps/gridcraft-web/index.html" ] || { echo "error: apps/gridcraft-web/index.html missing (the web app isn't set up yet)" >&2; exit 1; }
   # --dist/--public-url here, so the output doesn't depend on Trunk.toml (which should agree:
   # public_url = "./").
-  (cd "$ROOT/apps/gridcraft-web" && trunk build --release --dist "$SITE" --public-url ./)
+  # GRIDCRAFT_WEB_RENDERER=glow builds the WebGL2-only variant (see the crate's features).
+  features=()
+  if [ "${GRIDCRAFT_WEB_RENDERER:-wgpu}" = glow ]; then
+    features=(--no-default-features --features renderer-glow)
+  fi
+  (cd "$ROOT/apps/gridcraft-web" && trunk build --release --cargo-profile web ${features[@]+"${features[@]}"} --dist "$SITE" --public-url ./)
 fi
 
 [ -f "$SITE/index.html" ] || { echo "error: $SITE/index.html missing; run without --skip-build" >&2; exit 1; }

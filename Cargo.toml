@@ -75,3 +75,12 @@ opt-level = 3
 lto = "thin"
 codegen-units = 16
 debug = 0
+
+# The browser build (packaging/web/package.sh): every device downloads the
+# wasm and compiles it, so size comes first — fat LTO and one codegen unit
+# let the optimiser see the whole program, at the price of a longer build.
+[profile.web]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
