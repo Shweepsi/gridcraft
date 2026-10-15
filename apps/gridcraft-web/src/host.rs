@@ -161,6 +161,9 @@ impl Bridge {
                 app.session.set_active(i);
             }
             self.active_uid.set(uid);
+            // Import warnings stay in the info bar. As a message box they would catch the first
+            // tap or keystroke on the workbook, every time a shift opens it.
+            app.message = None;
             let sheets = js_sys::Array::from_iter(sheets.iter().map(|s| JsValue::from_str(s)));
             self.send(&[("type", "gridcraft:opened".into()), ("name", name.as_str().into()), ("sheets", sheets.into())]);
         }
@@ -225,7 +228,14 @@ impl Bridge {
                         .ok()
                         .and_then(|c| js_sys::JSON::stringify(&c).ok())
                         .and_then(|s| s.as_string())
-                        .and_then(|s| serde_json::from_str::<Vec<CellChange>>(&s).map_err(|e| log::error!("bad shared edits: {e}")).ok());
+                        .and_then(|s| serde_json::from_str::<Vec<serde_json::Value>>(&s).map_err(|e| log::error!("bad shared edits: {e}")).ok())
+                        // One cell this version can't read (written by another one, say) costs that
+                        // cell only, not the whole batch with it.
+                        .map(|list| {
+                            list.into_iter()
+                                .filter_map(|c| serde_json::from_value::<CellChange>(c).map_err(|e| log::error!("bad shared edit: {e}")).ok())
+                                .collect::<Vec<_>>()
+                        });
                     if let Some(changes) = changes {
                         incoming.borrow_mut().extend(changes);
                         ctx.request_repaint();
