@@ -60,6 +60,11 @@ pub struct UiState {
     /// sit at the end of the ribbon's tab row.
     #[serde(skip)]
     pub title_bar: bool,
+    /// The ribbon tabs shown, as lower-case names without spaces (`home`, `pagelayout`…); `None`
+    /// shows them all. A page embedding the web build narrows them (`?tabs=home,data,view`).
+    /// Contextual tabs (Table Design, Chart Design…) show whenever they apply.
+    #[serde(skip)]
+    pub ribbon_tabs: Option<Vec<String>>,
     /// Motion in the UI: the selection outline glides to a new selection (View ▸ Animations).
     pub animations: bool,
     /// Enable AutoComplete for cell values (File ▸ Options ▸ Editing): typed text is completed
@@ -107,6 +112,7 @@ impl Default for UiState {
             formula_bar_expanded: false,
             status_bar: true,
             title_bar: true,
+            ribbon_tabs: None,
             animations: true,
             autocomplete: true,
             recent: vec![],

@@ -24,6 +24,9 @@
 //!   They are recalculated, but are no undo step of this user's, and Undo keeps them.
 //! - A shared workbook never has unsaved changes: the parent stores its cells as they change.
 //!
+//! - `gridcraft:theme` (from the parent): `{ mode }`, `light`, `dark` or `system`, when the
+//!   page's own theme changes (`?theme=` gives the one to start with).
+//!
 //! Only the parent window on the page's own origin is heard or answered. In host mode the page
 //! starts with an empty workbook instead of a sample, and the parent guards leaving the page.
 
@@ -64,6 +67,8 @@ pub struct Bridge {
     incoming: Rc<RefCell<Vec<CellChange>>>,
     /// The active document's uid as of the last frame (0 for none).
     active_uid: Rc<Cell<u64>>,
+    /// The theme the parent asked for, waiting for the next frame.
+    theme: Rc<RefCell<Option<String>>>,
 }
 
 impl Bridge {
@@ -85,6 +90,7 @@ impl Bridge {
             shared: Rc::default(),
             incoming: Rc::default(),
             active_uid: Rc::default(),
+            theme: Rc::default(),
         })
     }
 
@@ -114,6 +120,15 @@ impl Bridge {
 
     pub fn post_failed(&self, error: &str) {
         self.send(&[("type", "gridcraft:failed".into()), ("error", error.into())]);
+    }
+
+    /// Before each frame: the theme the parent asked for since the last one.
+    pub fn before_frame(&self, app: &mut SheetApp) {
+        if let Some(mode) = self.theme.borrow_mut().take()
+            && let Err(e) = app.run("view.theme", serde_json::json!({ "mode": mode }))
+        {
+            log::warn!("gridcraft:theme {mode}: {e}");
+        }
     }
 
     /// After each frame: a workbook handed to the parent this frame counts as saved under the
@@ -216,6 +231,7 @@ impl Bridge {
         let expect_shared = self.expect_shared.clone();
         let incoming = self.incoming.clone();
         let active_uid = self.active_uid.clone();
+        let theme = self.theme.clone();
         let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |event: web_sys::MessageEvent| {
             if event.origin() != origin || !event.source().is_some_and(|s| js_sys::Object::is(&s, &parent)) {
                 return;
@@ -238,6 +254,13 @@ impl Bridge {
                         });
                     if let Some(changes) = changes {
                         incoming.borrow_mut().extend(changes);
+                        ctx.request_repaint();
+                    }
+                    return;
+                }
+                Some("gridcraft:theme") => {
+                    if let Some(mode) = string(&data, "mode") {
+                        *theme.borrow_mut() = Some(mode);
                         ctx.request_repaint();
                     }
                     return;
