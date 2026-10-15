@@ -303,6 +303,36 @@ fn read_xf(xf: &El, fonts: &[Font], fills: &[Fill], borders: &[Borders], fmts: &
 
 /// `checkboxes`: for each `xfComplement` index, whether it is a checkbox (see
 /// [`crate::feature_bags::checkbox_complements`]); empty when the file has no feature property bags.
+/// A differential format (`dxf`): from the styles part, or inline in an x14 conditional format.
+pub fn read_dxf(x: &El, palette: &[u32], fmts: &HashMap<u32, String>) -> Style {
+    let mut s = Style::default();
+    if let Some(f) = x.child("font") {
+        let f = read_font(f, palette);
+        // Differential fonts rarely name a face; keep the default face and size.
+        s.font = Font { name: s.font.name.clone(), size: s.font.size, ..f };
+    }
+    if let Some(n) = x.child("numFmt") {
+        if let Some(code) = n.attr("formatCode") {
+            s.num_fmt = NumFmt::new(code);
+        } else if let Some(id) = n.attr_u32("numFmtId") {
+            s.num_fmt = num_fmt_code(id, fmts);
+        }
+    }
+    if let Some(f) = x.child("fill") {
+        s.fill = read_fill(f, palette, true);
+    }
+    if let Some(b) = x.child("border") {
+        s.borders = read_border(b, palette);
+    }
+    if let Some(a) = x.child("alignment") {
+        s.align = read_alignment(a);
+    }
+    if let Some(p) = x.child("protection") {
+        s.protection = read_protection(p);
+    }
+    s
+}
+
 pub fn read_styles(root: &El, checkboxes: &[bool]) -> StylesIn {
     let mut palette: Vec<u32> = INDEXED.to_vec();
     if let Some(ix) = root.path(&["colors", "indexedColors"]) {
@@ -342,41 +372,7 @@ pub fn read_styles(root: &El, checkboxes: &[bool]) -> StylesIn {
             }
         }
     }
-    let dxfs = root
-        .child("dxfs")
-        .map(|d| {
-            d.kids("dxf")
-                .map(|x| {
-                    let mut s = Style::default();
-                    if let Some(f) = x.child("font") {
-                        let f = read_font(f, &palette);
-                        // Differential fonts rarely name a face; keep the default face and size.
-                        s.font = Font { name: s.font.name.clone(), size: s.font.size, ..f };
-                    }
-                    if let Some(n) = x.child("numFmt") {
-                        if let Some(code) = n.attr("formatCode") {
-                            s.num_fmt = NumFmt::new(code);
-                        } else if let Some(id) = n.attr_u32("numFmtId") {
-                            s.num_fmt = num_fmt_code(id, &fmts);
-                        }
-                    }
-                    if let Some(f) = x.child("fill") {
-                        s.fill = read_fill(f, &palette, true);
-                    }
-                    if let Some(b) = x.child("border") {
-                        s.borders = read_border(b, &palette);
-                    }
-                    if let Some(a) = x.child("alignment") {
-                        s.align = read_alignment(a);
-                    }
-                    if let Some(p) = x.child("protection") {
-                        s.protection = read_protection(p);
-                    }
-                    s
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let dxfs = root.child("dxfs").map(|d| d.kids("dxf").map(|x| read_dxf(x, &palette, &fmts)).collect()).unwrap_or_default();
     StylesIn { xfs, dxfs, palette, named, num_fmts: fmts }
 }
 

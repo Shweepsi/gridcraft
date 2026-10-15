@@ -16,7 +16,7 @@ use crate::IoError;
 use crate::fmla::from_file;
 use crate::package::Rel;
 use crate::read::Ctx;
-use crate::styles::read_color;
+use crate::styles::{read_color, read_dxf};
 use crate::tables::{col_width_to_px, paper_name, pt_to_px};
 use crate::xml::{self, El};
 
@@ -949,7 +949,22 @@ fn read_threaded(cx: &Ctx<'_>, x: &El, sheet: &mut Sheet) {
     }
 }
 
-/// Worksheet extensions: x14 data validations and sparklines.
+/// A conditional format Excel 2010 keeps only in the x14 extension (a text test whose operand
+/// is a formula, a reference to another sheet…): operands in `xm:f` children, format inline.
+fn x14_rule(cx: &Ctx<'_>, r: &El) -> Option<CfRule> {
+    let formulas: Vec<String> = r.kids("f").map(|f| from_file(f.text.trim())).collect();
+    let f0 = formulas.first().filter(|f| !f.is_empty())?.clone();
+    let style = Box::new(r.child("dxf").map(|d| read_dxf(d, &cx.palette, &cx.num_fmts)).unwrap_or_default());
+    Some(match r.attr("type")? {
+        // Text tests come with their equivalent formula first (`NOT(ISERROR(SEARCH(…)))`), which
+        // also covers an operand that is a formula rather than a literal.
+        "expression" | "containsText" | "notContainsText" | "beginsWith" | "endsWith" => CfRule::Expression { formula: f0, style },
+        "cellIs" => CfRule::CellIs { op: cf_op(r.attr("operator")), a: f0, b: formulas.get(1).cloned(), style },
+        _ => return None,
+    })
+}
+
+/// Worksheet extensions: x14 data validations, conditional formats and sparklines.
 fn read_ext(cx: &mut Ctx<'_>, e: &El, sheet: &mut Sheet) {
     for ext in e.kids("ext") {
         for c in &ext.children {
@@ -980,15 +995,31 @@ fn read_ext(cx: &mut Ctx<'_>, e: &El, sheet: &mut Sheet) {
                 }
                 "conditionalFormattings" => {
                     let mut skipped = false;
-                    for r in c.kids("conditionalFormatting").flat_map(|f| f.kids("cfRule")) {
-                        let idx = r.attr("id").and_then(|id| cx.cf_ext_ids.iter().find(|(i, _)| i == id)).map(|(_, n)| *n);
-                        match (idx.and_then(|n| sheet.cond_formats.get_mut(n)), r.child("dataBar")) {
-                            (Some(CondFormat { rule: CfRule::DataBar { gradient, .. }, .. }), Some(db)) => {
-                                *gradient = db.flag("gradient", true);
-                                // Only the fill style is modelled; borders, lengths, axis or negative colours are lost.
-                                skipped |= db.attrs.iter().any(|(k, _)| k != "gradient") || db.children.iter().any(|k| k.name != "cfvo");
+                    for f in c.kids("conditionalFormatting") {
+                        let ranges = parse_sqref(f.child("sqref").map(|q| q.text.as_str()));
+                        for r in f.kids("cfRule") {
+                            let idx = r.attr("id").and_then(|id| cx.cf_ext_ids.iter().find(|(i, _)| i == id)).map(|(_, n)| *n);
+                            let Some(n) = idx else {
+                                // A rule that lives only in the extension, not a data bar's complement.
+                                match x14_rule(cx, r).filter(|_| !ranges.is_empty()) {
+                                    Some(rule) => sheet.cond_formats.push(CondFormat {
+                                        ranges: ranges.clone(),
+                                        rule,
+                                        priority: r.attr_u32("priority").unwrap_or(0),
+                                        stop_if_true: r.flag("stopIfTrue", false),
+                                    }),
+                                    None => skipped = true,
+                                }
+                                continue;
+                            };
+                            match (sheet.cond_formats.get_mut(n), r.child("dataBar")) {
+                                (Some(CondFormat { rule: CfRule::DataBar { gradient, .. }, .. }), Some(db)) => {
+                                    *gradient = db.flag("gradient", true);
+                                    // Only the fill style is modelled; borders, lengths, axis or negative colours are lost.
+                                    skipped |= db.attrs.iter().any(|(k, _)| k != "gradient") || db.children.iter().any(|k| k.name != "cfvo");
+                                }
+                                _ => skipped = true,
                             }
-                            _ => skipped = true,
                         }
                     }
                     if skipped {
