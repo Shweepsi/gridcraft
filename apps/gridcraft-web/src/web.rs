@@ -49,6 +49,10 @@ pub fn start() {
                     }
                     let mut app = SheetApp::new(session, services);
                     app.ui.system_theme = true;
+                    // `?titlebar=0`: the embedding page shows the file's name and status itself.
+                    if query_param("titlebar").as_deref() == Some("0") {
+                        app.ui.title_bar = false;
+                    }
                     // Follow the browser's language, except a CJK one: the web build has no system
                     // CJK fonts (none are bundled), so that interface would render as tofu.
                     let browser = gridcraft_ui_egui::i18n::Language::system();
