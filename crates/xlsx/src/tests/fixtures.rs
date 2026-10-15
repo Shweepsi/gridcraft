@@ -585,19 +585,26 @@ fn conditional_formats_kept_only_in_the_x14_extension() {
     let body = r#"<sheetData><row r="3"><c r="E3" t="inlineStr"><is><t>8,6,8</t></is></c></row></sheetData>
       <extLst><ext uri="{78C0D931-6437-407d-A8EE-F0AAD7539E65}"><x14:conditionalFormattings xmlns:x14="x" xmlns:xm="m">
         <x14:conditionalFormatting><x14:cfRule type="containsText" priority="3" operator="containsText" id="{A}"><xm:f>NOT(ISERROR(SEARCH("8,6,8",E3)))</xm:f><xm:f>"8,6,8"</xm:f><x14:dxf><font><color rgb="FF0050A0"/></font></x14:dxf></x14:cfRule><xm:sqref>E3:E100</xm:sqref></x14:conditionalFormatting>
+        <x14:conditionalFormatting><x14:cfRule type="containsText" priority="5" operator="containsText" id="{C}"><xm:f>NOT(ISERROR(SEARCH($A$1,E3)))</xm:f><xm:f>$A$1</xm:f><x14:dxf><fill><patternFill><bgColor rgb="FFFFFF00"/></patternFill></fill></x14:dxf></x14:cfRule><xm:sqref>E3:E100</xm:sqref></x14:conditionalFormatting>
         <x14:conditionalFormatting><x14:cfRule type="iconSet" priority="4" id="{B}"><x14:iconSet iconSet="3Stars"/></x14:cfRule><xm:sqref>F3:F9</xm:sqref></x14:conditionalFormatting>
       </x14:conditionalFormattings></ext></extLst>"#;
     let (wb, rep) = read_xlsx(&minimal(body, &[], "", "")).unwrap();
     let s = wb.sheet(0).unwrap();
-    assert_eq!(s.cond_formats.len(), 1, "{:?}", s.cond_formats);
+    assert_eq!(s.cond_formats.len(), 2, "{:?}", s.cond_formats);
     let cf = &s.cond_formats[0];
     assert_eq!(cf.ranges, vec![RangeRef::parse("E3:E100").unwrap()]);
     assert_eq!(cf.priority, 3);
+    // A literal operand: the plain substring test, not a formula per cell.
     match &cf.rule {
-        CfRule::Expression { formula, style } => {
-            assert_eq!(formula, "NOT(ISERROR(SEARCH(\"8,6,8\",E3)))");
+        CfRule::ContainsText { text, style } => {
+            assert_eq!(text, "8,6,8");
             assert_eq!(style.font.color, Color::Rgb(0x0050A0));
         }
+        other => panic!("{other:?}"),
+    }
+    // An operand that is a formula keeps the equivalent formula Excel stores first.
+    match &s.cond_formats[1].rule {
+        CfRule::Expression { formula, .. } => assert_eq!(formula, "NOT(ISERROR(SEARCH($A$1,E3)))"),
         other => panic!("{other:?}"),
     }
     // What still can't be read (the x14 icon set) is still reported.

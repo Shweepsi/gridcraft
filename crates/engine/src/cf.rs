@@ -24,6 +24,22 @@ pub struct CfLook {
 #[derive(Default)]
 pub struct CfCache {
     stats: HashMap<usize, RuleStats>,
+    /// Formula rules parsed once; each cell evaluates the tree shifted to it.
+    exprs: HashMap<usize, Option<gridcraft_formula::Expr>>,
+}
+
+/// Whether a rule ranks or scales the values of its range (and so needs [`RuleStats`]).
+fn needs_stats(rule: &CfRule) -> bool {
+    matches!(
+        rule,
+        CfRule::Duplicate { .. }
+            | CfRule::Unique { .. }
+            | CfRule::Top10 { .. }
+            | CfRule::AboveAverage { .. }
+            | CfRule::ColorScale { .. }
+            | CfRule::DataBar { .. }
+            | CfRule::IconSet { .. }
+    )
 }
 
 #[derive(Default, Clone)]
@@ -109,20 +125,23 @@ impl CfCache {
             sh.cond_formats.iter().enumerate().filter(|(_, cf)| cf.ranges.iter().any(|r| r.contains(c))).collect();
         rules.sort_by_key(|(_, cf)| cf.priority);
         let v = sh.value(c);
+        let text = v.display();
+        let empty = RuleStats::default();
         for (idx, cf) in rules {
             let first = cf.ranges.first().map(|r| r.start).unwrap_or(c);
-            let st = self
-                .stats
-                .entry(idx)
-                .or_insert_with(|| {
+            // The statistics over a rule's range serve the rules that rank or scale values,
+            // computed once and kept for the next cells; the other rules never look at them.
+            let st: &RuleStats = if needs_stats(&cf.rule) {
+                &*self.stats.entry(idx).or_insert_with(|| {
                     let (sorted, counts) = numbers_in(sh, &cf.ranges);
                     let n = sorted.len().max(1) as f64;
                     let avg = sorted.iter().sum::<f64>() / n;
                     let std = (sorted.iter().map(|x| (x - avg).powi(2)).sum::<f64>() / n).sqrt();
                     RuleStats { sorted, avg, std, counts }
                 })
-                .clone();
-            let text = v.display();
+            } else {
+                &empty
+            };
             let matched_style: Option<&Style> = match &cf.rule {
                 CfRule::CellIs { op, a, b, style } => {
                     let eval = |f: &str| gridcraft_calc::evaluate(wb, sheet, c, &relative(f, first, c));
@@ -145,7 +164,22 @@ impl CfCache {
                     (ok && !v.is_error()).then_some(style.as_ref())
                 }
                 CfRule::Expression { formula, style } => {
-                    gridcraft_calc::evaluate(wb, sheet, c, &relative(formula, first, c)).to_bool().unwrap_or(false).then_some(style.as_ref())
+                    // Parsed once per rule; a cell other than the range's first evaluates the
+                    // tree shifted to it (the formula is relative to that first cell).
+                    let expr = self.exprs.entry(idx).or_insert_with(|| gridcraft_formula::parse(formula.trim_start_matches('=')).ok());
+                    let ok = match expr {
+                        Some(e) => {
+                            let (dr, dc) = (c.row as i64 - first.row as i64, c.col as i64 - first.col as i64);
+                            let value = if dr == 0 && dc == 0 {
+                                gridcraft_calc::recalc::evaluate_expr(wb, sheet, c, e)
+                            } else {
+                                gridcraft_calc::recalc::evaluate_expr(wb, sheet, c, &gridcraft_formula::adjust::shift_relative(e.clone(), dr, dc))
+                            };
+                            value.to_bool().unwrap_or(false)
+                        }
+                        None => false,
+                    };
+                    ok.then_some(style.as_ref())
                 }
                 CfRule::ContainsText { text: t, style } => text.to_lowercase().contains(&t.to_lowercase()).then_some(style.as_ref()),
                 CfRule::NotContainsText { text: t, style } => (!text.to_lowercase().contains(&t.to_lowercase())).then_some(style.as_ref()),
@@ -218,7 +252,7 @@ impl CfCache {
                     if let Some(n) = v.as_f64() {
                         let pts: Vec<(f64, [u8; 3])> = stops
                             .iter()
-                            .map(|(k, col)| (threshold(wb, sheet, c, &st, k), col.resolve(&wb.theme).unwrap_or([255, 255, 255])))
+                            .map(|(k, col)| (threshold(wb, sheet, c, st, k), col.resolve(&wb.theme).unwrap_or([255, 255, 255])))
                             .collect();
                         let rgb = match pts.as_slice() {
                             [(a, ca), (b, cb)] => lerp(*ca, *cb, if b > a { (n - a) / (b - a) } else { 0.0 }),
@@ -240,8 +274,8 @@ impl CfCache {
                 }
                 CfRule::DataBar { min, max, color, gradient, show_value } => {
                     if let Some(n) = v.as_f64() {
-                        let lo = threshold(wb, sheet, c, &st, min);
-                        let hi = threshold(wb, sheet, c, &st, max);
+                        let lo = threshold(wb, sheet, c, st, min);
+                        let hi = threshold(wb, sheet, c, st, max);
                         let lo = if lo > 0.0 { 0.0 } else { lo };
                         let frac = if hi > lo { ((n - lo) / (hi - lo)).clamp(0.0, 1.0) } else { 1.0 };
                         if out.bar.is_none() {
@@ -270,7 +304,7 @@ impl CfCache {
                                 defaults.get(1..).unwrap_or_default()
                             }
                         };
-                        let cuts: Vec<f64> = lower.iter().map(|t| threshold(wb, sheet, c, &st, t)).collect();
+                        let cuts: Vec<f64> = lower.iter().map(|t| threshold(wb, sheet, c, st, t)).collect();
                         let mut idx = cuts.iter().filter(|cut| n >= **cut).count();
                         if *reverse {
                             idx = k - 1 - idx.min(k - 1);

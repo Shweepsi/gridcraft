@@ -955,13 +955,28 @@ fn x14_rule(cx: &Ctx<'_>, r: &El) -> Option<CfRule> {
     let formulas: Vec<String> = r.kids("f").map(|f| from_file(f.text.trim())).collect();
     let f0 = formulas.first().filter(|f| !f.is_empty())?.clone();
     let style = Box::new(r.child("dxf").map(|d| read_dxf(d, &cx.palette, &cx.num_fmts)).unwrap_or_default());
-    Some(match r.attr("type")? {
-        // Text tests come with their equivalent formula first (`NOT(ISERROR(SEARCH(…)))`), which
-        // also covers an operand that is a formula rather than a literal.
-        "expression" | "containsText" | "notContainsText" | "beginsWith" | "endsWith" => CfRule::Expression { formula: f0, style },
-        "cellIs" => CfRule::CellIs { op: cf_op(r.attr("operator")), a: f0, b: formulas.get(1).cloned(), style },
+    // A text test comes with its equivalent formula first (`NOT(ISERROR(SEARCH(…)))`) and its
+    // operand second. A literal operand makes it the same cheap substring test as in the main
+    // part; an operand that is a formula keeps the equivalent formula.
+    let text = r.attr("text").map(str::to_string).or_else(|| formulas.get(1).and_then(|f| literal_text(f)));
+    Some(match (r.attr("type")?, text) {
+        ("containsText", Some(text)) => CfRule::ContainsText { text, style },
+        ("notContainsText", Some(text)) => CfRule::NotContainsText { text, style },
+        ("beginsWith", Some(text)) => CfRule::BeginsWith { text, style },
+        ("endsWith", Some(text)) => CfRule::EndsWith { text, style },
+        ("expression" | "containsText" | "notContainsText" | "beginsWith" | "endsWith", _) => CfRule::Expression { formula: f0, style },
+        ("cellIs", _) => CfRule::CellIs { op: cf_op(r.attr("operator")), a: f0, b: formulas.get(1).cloned(), style },
         _ => return None,
     })
+}
+
+/// The text a formula that is only a literal stands for: `"8,6,8"` or `12`, not `$A$1`.
+fn literal_text(f: &str) -> Option<String> {
+    let f = f.trim();
+    if let Some(inner) = f.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+        return Some(inner.replace("\"\"", "\""));
+    }
+    f.parse::<f64>().ok().map(|_| f.to_string())
 }
 
 /// Worksheet extensions: x14 data validations, conditional formats and sparklines.
