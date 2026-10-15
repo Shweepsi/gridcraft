@@ -74,27 +74,7 @@ pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
             {
                 app.run_or_alert("file.save", json!({}));
             }
-            let can_undo = app.session.active().is_some_and(|d| !d.undo.is_empty());
-            let can_redo = app.session.active().is_some_and(|d| !d.redo.is_empty());
-            if icon_button(ui, Icon::Undo, if can_undo { t.text_dim } else { t.text_disabled }, "Undo (⌘Z)", vec2(26.0, ch)).clicked() && can_undo {
-                app.run_or_alert("edit.undo", json!({}));
-            }
-            let undo_list = icon_button(ui, Icon::Chevron, t.text_dim, "Undo list", vec2(14.0, ch));
-            egui::Popup::menu(&undo_list).show(|ui| {
-                let labels: Vec<String> =
-                    app.session.active().map(|d| d.undo.iter().rev().take(20).map(|e| e.label.clone()).collect()).unwrap_or_default();
-                if labels.is_empty() {
-                    ui.label("Can't Undo");
-                }
-                for (i, l) in labels.iter().enumerate() {
-                    if ui.button(format!("Undo {l}")).clicked() {
-                        app.run_or_alert("edit.undo", json!({"steps": i + 1}));
-                    }
-                }
-            });
-            if icon_button(ui, Icon::Redo, if can_redo { t.text_dim } else { t.text_disabled }, "Redo (⌘Y)", vec2(26.0, ch)).clicked() && can_redo {
-                app.run_or_alert("edit.redo", json!({}));
-            }
+            undo_redo(app, ui, ch);
             let more = icon_button(ui, Icon::More, t.text_dim, "More commands", vec2(26.0, ch));
             egui::Popup::menu(&more).show(|ui| {
                 for (label, id) in [
@@ -162,6 +142,31 @@ pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
     });
 }
 
+/// Undo (with its history list) and Redo, as in the title bar's quick access.
+fn undo_redo(app: &mut SheetApp, ui: &mut Ui, ch: f32) {
+    let t = Tokens::get(ui.ctx());
+    let can_undo = app.session.active().is_some_and(|d| !d.undo.is_empty());
+    let can_redo = app.session.active().is_some_and(|d| !d.redo.is_empty());
+    if icon_button(ui, Icon::Undo, if can_undo { t.text_dim } else { t.text_disabled }, "Undo (⌘Z)", vec2(26.0, ch)).clicked() && can_undo {
+        app.run_or_alert("edit.undo", json!({}));
+    }
+    let undo_list = icon_button(ui, Icon::Chevron, t.text_dim, "Undo list", vec2(14.0, ch));
+    egui::Popup::menu(&undo_list).show(|ui| {
+        let labels: Vec<String> = app.session.active().map(|d| d.undo.iter().rev().take(20).map(|e| e.label.clone()).collect()).unwrap_or_default();
+        if labels.is_empty() {
+            ui.label("Can't Undo");
+        }
+        for (i, l) in labels.iter().enumerate() {
+            if ui.button(format!("Undo {l}")).clicked() {
+                app.run_or_alert("edit.undo", json!({"steps": i + 1}));
+            }
+        }
+    });
+    if icon_button(ui, Icon::Redo, if can_redo { t.text_dim } else { t.text_disabled }, "Redo (⌘Y)", vec2(26.0, ch)).clicked() && can_redo {
+        app.run_or_alert("edit.redo", json!({}));
+    }
+}
+
 pub fn show(app: &mut SheetApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let collapsed = app.ui.ribbon_collapsed;
@@ -218,6 +223,12 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                         {
                             keytip(app, ui, sequence, pos2(r.center().x, r.bottom() - 1.0));
                         }
+                    }
+                    // No title bar (embedded): its Undo and Redo move to the end of this row.
+                    if !app.ui.title_bar {
+                        let w = 26.0 + 14.0 + 26.0 + 2.0 * 2.0 + 8.0;
+                        ui.add_space((ui.available_width() - w).max(0.0));
+                        undo_redo(app, ui, TITLE_CONTROL_H);
                     }
                 });
             });

@@ -55,6 +55,11 @@ pub struct UiState {
     pub ribbon_collapsed: bool,
     pub formula_bar_expanded: bool,
     pub status_bar: bool,
+    /// Draw the title bar (AutoSave, quick access, the workbook's title, Share). A page embedding
+    /// the web build that shows the file itself turns it off (`?titlebar=0`); Undo and Redo then
+    /// sit at the end of the ribbon's tab row.
+    #[serde(skip)]
+    pub title_bar: bool,
     /// Motion in the UI: the selection outline glides to a new selection (View ▸ Animations).
     pub animations: bool,
     /// Enable AutoComplete for cell values (File ▸ Options ▸ Editing): typed text is completed
@@ -101,6 +106,7 @@ impl Default for UiState {
             ribbon_collapsed: false,
             formula_bar_expanded: false,
             status_bar: true,
+            title_bar: true,
             animations: true,
             autocomplete: true,
             recent: vec![],
@@ -1106,7 +1112,9 @@ impl SheetApp {
         if self.backstage.is_none() {
             self.ribbon_keys(&ctx);
         }
-        ribbon::title_bar(self, ui);
+        if self.ui.title_bar {
+            ribbon::title_bar(self, ui);
+        }
         if self.backstage.is_some() {
             // File tab: the Backstage view replaces everything below the title bar.
             backstage::show(self, ui);
