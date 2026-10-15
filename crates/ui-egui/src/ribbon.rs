@@ -142,6 +142,12 @@ pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
     });
 }
 
+/// Whether a (non-contextual) ribbon tab is shown: all are, unless the page narrowed them.
+fn tab_shown(app: &SheetApp, tab: &str) -> bool {
+    let key = tab.to_lowercase().replace(' ', "");
+    app.ui.ribbon_tabs.as_ref().is_none_or(|shown| shown.contains(&key))
+}
+
 /// Undo (with its history list) and Redo, as in the title bar's quick access.
 fn undo_redo(app: &mut SheetApp, ui: &mut Ui, ch: f32) {
     let t = Tokens::get(ui.ctx());
@@ -182,7 +188,7 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     ui.add_space(8.0);
                     file_menu(app, ui);
-                    let mut tabs: Vec<&str> = TABS.to_vec();
+                    let mut tabs: Vec<&str> = TABS.iter().copied().filter(|tab| tab_shown(app, tab)).collect();
                     let ctx_tabs = contextual_tabs(app);
                     tabs.extend(ctx_tabs.iter());
                     for tab in tabs {

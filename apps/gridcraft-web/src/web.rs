@@ -53,6 +53,25 @@ pub fn start() {
                     if query_param("titlebar").as_deref() == Some("0") {
                         app.ui.title_bar = false;
                     }
+                    // `?ribbon=collapsed`: start with the tabs row only, as after double-clicking a tab.
+                    if query_param("ribbon").as_deref() == Some("collapsed") {
+                        app.ui.ribbon_collapsed = true;
+                    }
+                    // `?tabs=home,data,view`: the ribbon tabs to show (contextual ones still appear).
+                    if let Some(tabs) = query_param("tabs") {
+                        let shown: Vec<String> =
+                            tabs.split(',').map(|t| t.trim().to_lowercase().replace(' ', "")).filter(|t| !t.is_empty()).collect();
+                        if let Some(first) = gridcraft_ui_egui::ribbon::TABS.iter().find(|t| shown.contains(&t.to_lowercase().replace(' ', ""))) {
+                            app.ui.ribbon_tab = (*first).to_string();
+                            app.ui.ribbon_tabs = Some(shown);
+                        }
+                    }
+                    // `?theme=light|dark|system`: the embedding page's theme rather than the system's.
+                    if let Some(mode) = query_param("theme")
+                        && let Err(e) = app.run("view.theme", serde_json::json!({ "mode": mode }))
+                    {
+                        log::warn!("?theme={mode}: {e}");
+                    }
                     // Follow the browser's language, except a CJK one: the web build has no system
                     // CJK fonts (none are bundled), so that interface would render as tofu.
                     let browser = gridcraft_ui_egui::i18n::Language::system();
@@ -101,6 +120,9 @@ struct WebShell {
 
 impl eframe::App for WebShell {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(bridge) = &self.bridge {
+            bridge.before_frame(&mut self.app);
+        }
         let dropped = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
         for f in dropped {
             let inbox = self.inbox.clone();
