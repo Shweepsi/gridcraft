@@ -128,12 +128,7 @@ impl Shift {
         let outcome = match engine.session.doc_by_uid_mut(self.uid) {
             None => Outcome { response, lost: true, ..Outcome::default() },
             Some(d) if Arc::ptr_eq(&self.last, &d.wb) => Outcome { response, ..Outcome::default() },
-            Some(d) => Outcome {
-                changes: collab::diff(&self.last, &d.wb),
-                structural: !same_structure(&self.last, &d.wb),
-                response,
-                lost: false,
-            },
+            Some(d) => Outcome { changes: collab::diff(&self.last, &d.wb), structural: !same_structure(&self.last, &d.wb), response, lost: false },
         };
         drop(engine);
         self.before = Some(before);
