@@ -41,6 +41,11 @@ pub struct EditState {
     pub completion: Option<String>,
     /// Move the caret to the end on the next frame.
     pub caret_to_end: bool,
+    /// The entries of the cell's drop-down list (list validation): typing suggests from them,
+    /// and committing enters the one meant.
+    pub list: Option<Vec<String>>,
+    /// The highlighted suggestion was chosen with the arrow keys.
+    pub ac_moved: bool,
 }
 
 impl EditState {
@@ -62,6 +67,8 @@ impl EditState {
             sync_caret: true,
             caret_to_end: true,
             completion: None,
+            list: None,
+            ac_moved: false,
         }
     }
 
@@ -128,9 +135,59 @@ impl EditState {
         self.ac_index = self.ac_index.min(self.autocomplete.len().saturating_sub(1));
     }
 
-    /// Accepts the highlighted autocomplete entry: replaces the word and adds `(`.
+    /// The suggestions under the editor are drop-down list entries, not functions.
+    pub fn list_mode(&self) -> bool {
+        self.list.is_some() && !self.is_formula()
+    }
+
+    /// Suggests the drop-down list entries the typed text points to.
+    pub fn update_list_suggestions(&mut self) {
+        let Some(items) = &self.list else { return };
+        if self.is_formula() {
+            return;
+        }
+        let found = gridcraft_engine::cmd::data::list_suggestions(items, &self.text);
+        // The text already is that one entry: nothing left to suggest.
+        let done = found.len() == 1 && gridcraft_engine::cmd::data::list_entry(items, &self.text).is_some();
+        self.autocomplete = if done { vec![] } else { found };
+        self.ac_index = 0;
+        self.ac_moved = false;
+    }
+
+    /// What a cell with a drop-down list gets when the edit is committed: the entry the text is
+    /// (whatever its case), the one entry it points to, or the one picked with the arrow keys.
+    /// `None` keeps the text as typed (the validation then judges it); `Err` means several
+    /// entries match and none was picked yet.
+    pub fn list_commit(&self) -> Result<Option<String>, ()> {
+        let Some(items) = &self.list else { return Ok(None) };
+        if self.is_formula() || self.text.trim().is_empty() {
+            return Ok(None);
+        }
+        if let Some(entry) = gridcraft_engine::cmd::data::list_entry(items, &self.text) {
+            return Ok(Some(entry));
+        }
+        let found = gridcraft_engine::cmd::data::list_suggestions(items, &self.text);
+        match found.len() {
+            0 => Ok(None),
+            1 => Ok(found.into_iter().next()),
+            _ if self.ac_moved && self.autocomplete == found => Ok(found.get(self.ac_index).cloned()),
+            _ => Err(()),
+        }
+    }
+
+    /// Accepts the highlighted autocomplete entry: replaces the word and adds `(`, or, for a
+    /// drop-down list entry, becomes the whole text.
     pub fn accept_autocomplete(&mut self) -> bool {
         let Some(name) = self.autocomplete.get(self.ac_index).cloned() else { return false };
+        if self.list_mode() {
+            self.text = name;
+            self.caret = self.text.chars().count();
+            self.autocomplete.clear();
+            self.completion = None;
+            self.caret_to_end = true;
+            self.sync_caret = true;
+            return true;
+        }
         let caret_b = self.byte_caret();
         let before = self.text.get(..caret_b).unwrap_or("");
         let wlen: usize = before.chars().rev().take_while(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '_').map(char::len_utf8).sum();
@@ -236,6 +293,17 @@ pub fn formula_refs(text: &str) -> Vec<(usize, usize, RangeRef, Option<String>, 
         i += 1;
     }
     out
+}
+
+/// The entries of the drop-down list (list validation) on `at`, if it has one.
+pub fn list_entries(wb: &gridcraft_engine::model::Workbook, sheet: usize, at: CellRef) -> Option<Vec<String>> {
+    let dv = wb
+        .sheet(sheet)?
+        .validations
+        .iter()
+        .find(|v| v.kind == gridcraft_engine::model::ValidationKind::List && v.ranges.iter().any(|r| r.contains(at)))?;
+    let items = gridcraft_engine::cmd::data::list_items(wb, sheet, dv);
+    (!items.is_empty()).then_some(items)
 }
 
 /// Excel-style AutoComplete: the one distinct text entry in the same column (contiguous data

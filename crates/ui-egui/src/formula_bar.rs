@@ -163,6 +163,8 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
     let has_focus = focused == Some(id) || (mine && (ed.request_focus || focused.is_none()));
     let mut action: Option<(i64, i64, bool, bool)> = None;
     let mut cancel = false;
+    // A drop-down list entry was clicked under the editor: enter it.
+    let mut picked_entry = false;
     if has_focus && mine {
         let (enter, tab, esc, alt_enter, cmd_enter, ctrl_shift_enter, shift) = ui.input_mut(|i| {
             let m = i.modifiers;
@@ -187,7 +189,12 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
             ed.sync_caret = true;
         }
         if !ed.autocomplete.is_empty() && tab {
+            let list = ed.list_mode();
             ed.accept_autocomplete();
+            // A drop-down list entry is the whole value: Tab enters it and moves on, as with typed text.
+            if list {
+                action = Some((0, if shift { -1 } else { 1 }, false, false));
+            }
         } else if enter {
             action = Some((if shift { -1 } else { 1 }, 0, false, false));
         } else if tab {
@@ -226,6 +233,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
             });
             let n = ed.autocomplete.len();
             ed.ac_index = if down { (ed.ac_index + 1) % n } else { (ed.ac_index + n - 1) % n };
+            ed.ac_moved = true;
         } else if ed.enter_mode && (up || down || left || right) && !ed.from_formula_bar {
             let (dr, dc) = if up {
                 (-1, 0)
@@ -313,6 +321,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
         ed.completion = None;
         if app.ui.autocomplete
             && !ed.is_formula()
+            && ed.list.is_none()
             && ed.caret == ed.text.chars().count()
             && let Some(sh) = app.session.active().and_then(|d| d.wb.sheet(ed.sheet))
         {
@@ -326,6 +335,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
             })
             .collect();
         ed.update_autocomplete(&names);
+        ed.update_list_suggestions();
         app.session.mode = if ed.can_point() {
             gridcraft_engine::Mode::Point
         } else if ed.enter_mode {
@@ -353,16 +363,15 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
         let below = resp.rect.left_bottom() + vec2(0.0, 4.0);
         // Areas have their own clip rect: keep cell helpers inside the worksheet.
         let bounds = if ed.from_formula_bar { ui.ctx().content_rect() } else { ui.clip_rect() };
+        let list = ed.list_mode();
         egui::Area::new(id.with("ac")).fixed_pos(below).constrain_to(bounds).order(egui::Order::Tooltip).show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).inner_margin(4.0).show(ui, |ui| {
                 if !ed.autocomplete.is_empty() {
                     let mut pick = None;
                     for (i, n) in ed.autocomplete.iter().enumerate() {
                         let sel = i == ed.ac_index;
-                        let r = ui.add(
-                            egui::Button::selectable(sel, egui::RichText::new(format!("ƒ  {n}")).font(theme::ui_font(12.5)))
-                                .min_size(vec2(220.0, 20.0)),
-                        );
+                        let label = if list { n.clone() } else { format!("ƒ  {n}") };
+                        let r = ui.add(egui::Button::selectable(sel, egui::RichText::new(label).font(theme::ui_font(12.5))).min_size(vec2(220.0, 20.0)));
                         if r.clicked() {
                             pick = Some(i);
                         }
@@ -378,6 +387,8 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
                         ed.ac_index = i;
                         ed.accept_autocomplete();
                         ed.request_focus = true;
+                        // Clicking a drop-down list entry enters it.
+                        picked_entry |= list;
                     }
                 } else if let Some((name, arg)) = ed.current_function()
                     && let Some(sig) = crate::formula_locale::signature(&name, ed.locale)
@@ -412,7 +423,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
     app.editor = Some(ed);
     if cancel {
         app.cancel_edit();
-    } else if let Some((dr, dc, array, fill)) = action {
+    } else if let Some((dr, dc, array, fill)) = action.or(picked_entry.then_some((0, 0, false, false))) {
         app.commit_edit(dr, dc, array, fill);
     }
 }

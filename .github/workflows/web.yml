@@ -1,0 +1,117 @@
+# The browser build working-book embeds (apps/gridcraft-web, WebGL2 through glow): the engine's and
+# the UI's tests, then packaging/web/package.sh. Given a tag, the zip is attached to that release
+# as gridcraft-web-<version>-glow.zip, which working-book pins by tag and SHA-256
+# (scripts/fetch-gridcraft.sh there).
+name: Web
+
+on:
+  push:
+    branches: [shared-cells]
+    paths:
+      - 'crates/**'
+      - 'apps/gridcraft-web/**'
+      - 'Cargo.lock'
+      - 'packaging/web/**'
+      - '.github/workflows/web.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release to attach the zip to, created if missing (e.g. v0.7.0-shared.7). Empty: build only."
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  test:
+    name: Engine and UI tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Linux build dependencies (winit, wgpu, rfd)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev \
+            libxi-dev libgtk-3-dev libfontconfig1-dev libfreetype-dev mesa-vulkan-drivers
+
+      - name: Install Rust (stable + clippy, rustfmt)
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # Reported, not enforced: changes here are written without a local toolchain.
+      - name: Formatting
+        continue-on-error: true
+        run: cargo fmt -p gridcraft-engine -p gridcraft-ui-egui -- --check
+
+      - name: Tests
+        run: |
+          cargo test -p gridcraft-engine --lib --locked
+          cargo test -p gridcraft-ui-egui --locked
+
+      - name: Clippy
+        run: cargo clippy -p gridcraft-engine -p gridcraft-ui-egui --all-targets --locked -- -D warnings
+
+  build:
+    name: Build the web zip (glow)
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust (stable + wasm32)
+        run: |
+          rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        with:
+          tool: trunk@0.21.14
+
+      - name: Build and zip
+        env:
+          TAG: ${{ inputs.tag }}
+          GRIDCRAFT_WEB_RENDERER: glow
+        run: |
+          # A tagged build is named after its release: gridcraft-web-0.7.0-shared.7-glow.zip.
+          if [ -n "$TAG" ]; then export GRIDCRAFT_VERSION="${TAG#v}"; fi
+          packaging/web/package.sh
+          cd dist/release
+          for z in gridcraft-web-*.zip; do mv "$z" "${z%.zip}-glow.zip"; done
+
+      - name: SHA-256
+        run: sha256sum dist/release/gridcraft-web-*-glow.zip | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gridcraft-web-glow
+          path: dist/release/gridcraft-web-*-glow.zip
+
+      - name: Attach to the release
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          zip=$(ls dist/release/gridcraft-web-*-glow.zip)
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "$TAG" \
+                 --notes "GridCraft for working-book's Suivi tab (WebGL2), built from $GITHUB_SHA."
+          gh release upload "$TAG" "$zip" --clobber
