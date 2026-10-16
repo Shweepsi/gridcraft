@@ -77,10 +77,12 @@ codegen-units = 16
 debug = 0
 
 # The browser build (packaging/web/package.sh): every device downloads the
-# wasm and compiles it, so size comes first — fat LTO and one codegen unit
-# let the optimiser see the whole program, at the price of a longer build.
+# wasm and compiles it, so fat LTO and one codegen unit let the optimiser see
+# the whole program (a third smaller, at the price of a longer build). Speed
+# over size for the code itself: opt-level "s" measured 25 % slower on a
+# sheet full of conditional formats, and the download is cached for good.
 [profile.web]
 inherits = "release"
-opt-level = "s"
+opt-level = 3
 lto = "fat"
 codegen-units = 1
