@@ -6,7 +6,7 @@ name: Web
 
 on:
   push:
-    branches: [shared-cells, date-entry]
+    branches: [shared-cells]
     paths:
       - 'crates/**'
       - 'apps/gridcraft-web/**'
