@@ -87,6 +87,7 @@ jobs:
 
       # Carlito (Calibri's metrics, SIL OFL 1.1) for the cells: the browser build can't read the
       # system's fonts. Pinned to a google/fonts commit and checked; shipped in the zip's fonts/.
+      # Regular and italic only: bold cells show in the regular face (apps/gridcraft-web/src/web.rs).
       - name: Cell fonts
         env:
           FONTS_REV: 3dd78844021e948ceb633d1dcee3f7885561b5d9
@@ -99,9 +100,7 @@ jobs:
             echo "$sum  $file" | sha256sum -c --quiet -
           done <<'SUMS'
           f6418f708baede9789daef5d458c0f53d2a888af9820e8062934e504fedc6595 Carlito-Regular.ttf
-          bb5d20f79b82599ec72983597437373a80f2d2085fa91fc144fd74e876a594db Carlito-Bold.ttf
           0b019225e58d702bfedcbd35c21696769f8ee115cb6343f84c2f240312450d1c Carlito-Italic.ttf
-          b32928186c119599e03ca6a1ffc680fdcb7fac95772f4b95d989cf6cd3861517 Carlito-BoldItalic.ttf
           58402f82a7c332a700294988fe7554fbb0a63a8d27ccc1ee3bbc640311990a00 OFL.txt
           SUMS
           echo "GRIDCRAFT_WEB_FONTS_DIR=$dir" >> "$GITHUB_ENV"

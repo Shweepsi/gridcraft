@@ -129,8 +129,9 @@ pub fn start() {
 /// The cell fonts packaged next to the page (`fonts/`, see packaging/web): the browser lets the
 /// app read no system font, so without them cells use egui's thin built-in face, blurry on a
 /// screen at 100 % scaling. Fetched together before the app starts (the browser caches them); a
-/// missing one only costs that face.
-const WEB_FONTS: [&str; 4] = ["Carlito-Regular.ttf", "Carlito-Bold.ttf", "Carlito-Italic.ttf", "Carlito-BoldItalic.ttf"];
+/// missing one only costs that face. No bold faces, on purpose: working-book wants no bold text,
+/// so bold cells fall back to the regular face (the cell-bold role chains to it).
+const WEB_FONTS: [&str; 2] = ["Carlito-Regular.ttf", "Carlito-Italic.ttf"];
 
 async fn load_fonts() {
     let Some(window) = web_sys::window() else { return };
