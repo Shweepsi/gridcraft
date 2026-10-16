@@ -38,6 +38,48 @@ pub fn format(v: &Value, code: &str, wb: &Workbook) -> Formatted {
 /// serial. When the formatted text would not read back as the same date (for example
 /// `dddd, mmmm d`), an ISO `yyyy-mm-dd` (with `hh:mm:ss` for a time of day; just `hh:mm:ss`
 /// for a time alone) is used instead, and if even that would not read back, the serial.
+/// For a format with a day in it, whether the day comes before the month ("dd/mm/yy" yes,
+/// "m/d/yyyy" no). `None` for a format without a day (numbers, text, times, "mmm-yy").
+pub fn date_day_first(code: &str) -> Option<bool> {
+    if !parsed(code).is_date() {
+        return None;
+    }
+    let (mut day, mut month) = (None, None);
+    let (mut quoted, mut bracket, mut escaped) = (false, false, false);
+    for (i, c) in code.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' if !quoted => escaped = true,
+            '"' => quoted = !quoted,
+            '[' if !quoted => bracket = true,
+            ']' if !quoted => bracket = false,
+            _ if quoted || bracket => {}
+            // The first section is the one dates show in.
+            ';' => break,
+            'd' | 'D' if day.is_none() => day = Some(i),
+            'm' | 'M' if month.is_none() => month = Some(i),
+            _ => {}
+        }
+    }
+    let day = day?;
+    Some(month.is_none_or(|m| day < m))
+}
+
+/// The value of `s` typed into a cell formatted with `code`: in a date format, a date read in
+/// that format's order, short forms included (`gridcraft_core::parse::parse_date_entry`);
+/// otherwise as typed anywhere.
+pub fn typed_value(wb: &Workbook, code: &str, s: &str) -> Value {
+    if let Some(day_first) = date_day_first(code)
+        && let Some(n) = gridcraft_core::parse::parse_date_entry(s, wb.date_system, day_first)
+    {
+        return Value::Number(n);
+    }
+    gridcraft_core::parse::parse_input(s, wb.date_system).value
+}
+
 pub fn edit_text(wb: &Workbook, sheet: &Sheet, c: CellRef) -> String {
     let raw = sheet.input_text(c);
     let Some(cell) = sheet.cell(c) else { return raw };
@@ -46,7 +88,7 @@ pub fn edit_text(wb: &Workbook, sheet: &Sheet, c: CellRef) -> String {
     if cell.formula.is_some() || !parsed(code).is_date() {
         return raw;
     }
-    let reads_back = |s: &str| matches!(gridcraft_core::parse::parse_input(s, wb.date_system).value, Value::Number(m) if (m - n).abs() < 1e-9);
+    let reads_back = |s: &str| matches!(typed_value(wb, code, s), Value::Number(m) if (m - n).abs() < 1e-9);
     let shown = format(&cell.value, code, wb).text;
     if reads_back(&shown) {
         return shown;

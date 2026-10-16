@@ -184,7 +184,12 @@ pub(crate) fn dispatch(app: &mut SheetApp, ctx: &egui::Context, key: Key, physic
                 .active()
                 .map(|d| {
                     let now = gridcraft_engine::core::date::serial_in_system(d.wb.date_system, gridcraft_engine::calc::now_serial());
-                    let (value, format) = if shortcut == Shortcut::Date { (now.floor(), "m/d/yyyy") } else { (now.fract(), "h:mm AM/PM") };
+                    // Today in the cell's own date format when it has one, so it reads back
+                    // as the same day ("dd/mm/yy" takes the day first).
+                    let cell_format = d.wb.styles.get(sh.style_id(active)).num_fmt.as_str().to_string();
+                    let date_format =
+                        if gridcraft_engine::display::date_day_first(&cell_format).is_some() { cell_format.as_str() } else { "m/d/yyyy" };
+                    let (value, format) = if shortcut == Shortcut::Date { (now.floor(), date_format) } else { (now.fract(), "h:mm AM/PM") };
                     gridcraft_engine::display::format(&gridcraft_engine::core::Value::Number(value), format, &d.wb).text
                 })
                 .unwrap_or_default();

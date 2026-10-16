@@ -271,6 +271,76 @@ fn parse_date(t: &str, sys: DateSystem) -> Option<(f64, &'static str)> {
     None
 }
 
+/// A date typed into a cell formatted as a date, read in that format's order (`day_first` for
+/// "dd/mm/yy") and with the short forms that save typing: "16/10/26", "16.10.2026", "16-10-26",
+/// "16 10 26", "161026", "16102026"; without the year ("16/10", "1610") or with the day alone
+/// ("16"), the most recent such day up to today, since what is typed is rarely today but often
+/// a past day. A four-digit year first ("2026-10-16") is read as such. `None` when the text isn't
+/// such a date: it then goes through [`parse_input`].
+pub fn parse_date_entry(t: &str, sys: DateSystem, day_first: bool) -> Option<f64> {
+    let today = match crate::date::unix_now_ms() {
+        Some(ms) => {
+            let (y, m, d) = crate::date::civil_from_days((ms / 86_400_000.0).floor() as i64);
+            (i64::from(y), i64::from(m), i64::from(d))
+        }
+        None => (current_year(), 12, 31),
+    };
+    parse_date_entry_on(t, sys, day_first, today)
+}
+
+/// [`parse_date_entry`] with today given as (year, month, day).
+pub fn parse_date_entry_on(t: &str, sys: DateSystem, day_first: bool, today: (i64, i64, i64)) -> Option<f64> {
+    let (year, month, _) = today;
+    let now = serial_from_ymd(sys, today.0, today.1, today.2)?;
+    let t = t.trim();
+    let two_digit_year = |y: i64| if y < 30 { 2000 + y } else { 1900 + y };
+    let day_month = |a: i64, b: i64| if day_first { (a, b) } else { (b, a) };
+    let num = |s: &str| if !s.is_empty() && s.len() <= 4 && s.bytes().all(|b| b.is_ascii_digit()) { s.parse::<i64>().ok() } else { None };
+    // Day and month without a year: this year, or last year if that is still to come.
+    let latest_year = |d: i64, m: i64| valid_ymd(sys, year, m, d).filter(|&n| n <= now).or_else(|| valid_ymd(sys, year - 1, m, d));
+    // The day alone: this month, or the latest month before that has that day and is past.
+    let latest_month = |d: i64| {
+        (0..3).find_map(|back| {
+            let k = year * 12 + (month - 1) - back;
+            valid_ymd(sys, k.div_euclid(12), k.rem_euclid(12) + 1, d).filter(|&n| n <= now)
+        })
+    };
+    if !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) {
+        let at = |a: usize, b: usize| t.get(a..b).and_then(|s| s.parse::<i64>().ok());
+        return match t.len() {
+            1 | 2 => latest_month(at(0, t.len())?),
+            4 => {
+                let (d, m) = day_month(at(0, 2)?, at(2, 4)?);
+                latest_year(d, m)
+            }
+            6 => {
+                let (d, m) = day_month(at(0, 2)?, at(2, 4)?);
+                valid_ymd(sys, two_digit_year(at(4, 6)?), m, d)
+            }
+            8 => {
+                let (d, m) = day_month(at(0, 2)?, at(2, 4)?);
+                valid_ymd(sys, at(4, 8)?, m, d)
+            }
+            _ => None,
+        };
+    }
+    let parts: Vec<&str> = t.split(['/', '.', '-', ' ']).filter(|p| !p.is_empty()).collect();
+    let n: Vec<i64> = parts.iter().map(|p| num(p)).collect::<Option<_>>()?;
+    match (n.as_slice(), parts.first().map(|p| p.len())) {
+        ([a, b], _) => {
+            let (d, m) = day_month(*a, *b);
+            latest_year(d, m)
+        }
+        ([y, m, d], Some(4)) => valid_ymd(sys, *y, *m, *d),
+        ([a, b, y], _) => {
+            let (d, m) = day_month(*a, *b);
+            let y = if parts.get(2).is_some_and(|p| p.len() <= 2) { two_digit_year(*y) } else { *y };
+            valid_ymd(sys, y, m, d)
+        }
+        _ => None,
+    }
+}
+
 fn valid_ymd(sys: DateSystem, y: i64, m: i64, d: i64) -> Option<f64> {
     // Dates before 1900 stay text (`DATE()` would add 1900 to such a year).
     if !(1..=12).contains(&m) || d < 1 || y < 1900 {
@@ -321,6 +391,46 @@ fn parse_datetime(t: &str, sys: DateSystem) -> Option<(f64, Option<&'static str>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Typed in a "dd/mm/yy" cell on 16 October 2026.
+    fn entry(t: &str) -> Option<f64> {
+        parse_date_entry_on(t, DateSystem::D1900, true, (2026, 10, 16))
+    }
+
+    fn ymd(y: i64, m: i64, d: i64) -> Option<f64> {
+        serial_from_ymd(DateSystem::D1900, y, m, d)
+    }
+
+    #[test]
+    fn date_entries_in_a_day_first_cell() {
+        let oct16 = serial_from_ymd(DateSystem::D1900, 2026, 10, 16);
+        for t in ["16/10/26", "16/10/2026", "16.10.26", "16-10-26", "16 10 26", " 16/10/26 ", "16/10", "16.10", "1610", "161026", "16102026", "16", "2026-10-16"] {
+            assert_eq!(entry(t), oct16, "{t:?}");
+        }
+        // Day first, whatever the day: 5 October, not 10 May.
+        assert_eq!(entry("05/10/26"), ymd(2026, 10, 5));
+        assert_eq!(entry("5/1"), ymd(2026, 1, 5));
+        assert_eq!(entry("010199"), ymd(1999, 1, 1));
+        // Without a year or a month: the latest such day, today included, never one to come.
+        assert_eq!(entry("20/12"), ymd(2025, 12, 20));
+        assert_eq!(entry("2012"), ymd(2025, 12, 20));
+        assert_eq!(entry("20"), ymd(2026, 9, 20));
+        assert_eq!(entry("31"), ymd(2026, 8, 31), "September has no 31st");
+        assert_eq!(entry("1"), ymd(2026, 10, 1));
+        assert_eq!(entry("29/02"), None, "no 29 February this year or last");
+        assert_eq!(parse_date_entry_on("15", DateSystem::D1900, true, (2026, 1, 10)), ymd(2025, 12, 15), "across the new year");
+        for t in ["32/10/26", "16/13", "31/09/26", "123", "12345", "abc", "16/10/26/1", "", "16:30", "1.5.2.6"] {
+            assert_eq!(entry(t), None, "{t:?}");
+        }
+    }
+
+    #[test]
+    fn date_entries_in_a_month_first_cell() {
+        let oct16 = serial_from_ymd(DateSystem::D1900, 2026, 10, 16);
+        for t in ["10/16/26", "10/16", "1016", "101626", "16"] {
+            assert_eq!(parse_date_entry_on(t, DateSystem::D1900, false, (2026, 10, 16)), oct16, "{t:?}");
+        }
+    }
 
     fn p(s: &str) -> Parsed {
         parse_input(s, DateSystem::D1900)

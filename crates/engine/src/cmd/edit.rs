@@ -176,6 +176,13 @@ pub(crate) fn input_to_cell(input: &str, sheet: usize, at: CellRef, wb: &mut gri
         }
         return Ok(Some(cell));
     }
+    // A cell formatted as a date reads a typed date in that format's order ("16/10/26" in a
+    // "dd/mm/yy" cell is 16 October), short forms included ("1610", "16"), and keeps its format.
+    if let Some(day_first) = crate::display::date_day_first(wb.styles.get(style).num_fmt.as_str())
+        && let Some(n) = gridcraft_core::parse::parse_date_entry(input, wb.date_system, day_first)
+    {
+        return Ok(Some(Cell { value: gridcraft_core::Value::Number(n), formula: None, style }));
+    }
     let parsed = gridcraft_core::parse::parse_input(input, wb.date_system);
     let mut style = style;
     if let Some(code) = parsed.format {

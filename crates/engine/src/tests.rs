@@ -3282,3 +3282,42 @@ fn paste_special_validation_moves_relative_references() {
     assert!(!ok(&mut s, "C3", "5"), "the pasted rule checks C3, not A1");
     assert!(ok(&mut s, "C3", "20"));
 }
+
+#[test]
+fn a_date_cell_reads_typed_dates_in_its_own_order() {
+    let mut s = s();
+    s.execute("home.numberFormat", json!({"range": "A1:A9", "format": "dd/mm/yy;@"})).unwrap();
+    let day = |y, m, d| Value::Number(gridcraft_core::date::serial_from_ymd(gridcraft_core::date::DateSystem::D1900, y, m, d).unwrap());
+    for (cell, typed) in [("A1", "16/10/26"), ("A2", "161026"), ("A3", "16.10.2026")] {
+        s.execute("cell.set", json!({"cell": cell, "input": typed})).unwrap();
+        assert_eq!(v(&s, cell), day(2026, 10, 16), "{typed}");
+    }
+    s.execute("cell.set", json!({"cell": "A4", "input": "05/10/26"})).unwrap();
+    assert_eq!(v(&s, "A4"), day(2026, 10, 5), "5 October, not 10 May");
+    // The cell keeps its format, and editing it again shows the date that way.
+    let a4 = CellRef::parse("A4").unwrap();
+    {
+        let d = s.doc().unwrap();
+        let sh = d.wb.active().unwrap();
+        assert_eq!(d.wb.styles.get(sh.style_id(a4)).num_fmt.as_str(), "dd/mm/yy;@");
+        assert_eq!(crate::display::edit_text(&d.wb, sh, a4), "05/10/26");
+    }
+    // Elsewhere dates read as before, month first; text stays text.
+    s.execute("cell.set", json!({"cell": "B1", "input": "05/10/26"})).unwrap();
+    assert_eq!(v(&s, "B1"), day(2026, 5, 10));
+    s.execute("cell.set", json!({"cell": "A5", "input": "hello"})).unwrap();
+    assert_eq!(v(&s, "A5"), Value::text("hello"));
+}
+
+#[test]
+fn date_day_first_follows_the_format() {
+    use crate::display::date_day_first;
+    assert_eq!(date_day_first("dd/mm/yy;@"), Some(true));
+    assert_eq!(date_day_first("[$-fr-FR]dd mmmm yyyy"), Some(true));
+    assert_eq!(date_day_first("d\" de \"mmmm"), Some(true));
+    assert_eq!(date_day_first("m/d/yyyy"), Some(false));
+    assert_eq!(date_day_first("yyyy-mm-dd"), Some(false));
+    for not_a_day in ["General", "0.00", "@", "h:mm", "mmm-yy"] {
+        assert_eq!(date_day_first(not_a_day), None, "{not_a_day}");
+    }
+}

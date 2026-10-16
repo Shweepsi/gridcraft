@@ -6,7 +6,7 @@ name: Web
 
 on:
   push:
-    branches: [shared-cells]
+    branches: [shared-cells, date-entry]
     paths:
       - 'crates/**'
       - 'apps/gridcraft-web/**'
@@ -56,15 +56,15 @@ jobs:
       # Reported, not enforced: changes here are written without a local toolchain.
       - name: Formatting
         continue-on-error: true
-        run: cargo fmt -p gridcraft-engine -p gridcraft-ui-egui -- --check
+        run: cargo fmt -p gridcraft-core -p gridcraft-engine -p gridcraft-ui-egui -- --check
 
       - name: Tests
         run: |
-          cargo test -p gridcraft-engine --lib --locked
+          cargo test -p gridcraft-core -p gridcraft-engine --lib --locked
           cargo test -p gridcraft-ui-egui --locked
 
       - name: Clippy
-        run: cargo clippy -p gridcraft-engine -p gridcraft-ui-egui --all-targets --locked -- -D warnings
+        run: cargo clippy -p gridcraft-core -p gridcraft-engine -p gridcraft-ui-egui --all-targets --locked -- -D warnings
 
   build:
     name: Build the web zip (glow)
