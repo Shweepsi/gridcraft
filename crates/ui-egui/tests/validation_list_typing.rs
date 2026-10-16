@@ -7,6 +7,7 @@ use egui_kittest::kittest::Queryable;
 use gridcraft_engine::Session;
 use gridcraft_engine::core::{CellRef, Value};
 use gridcraft_ui_egui::SheetApp;
+use gridcraft_ui_egui::editor::ListCommit;
 use serde_json::json;
 
 type Harness = egui_kittest::Harness<'static, SheetApp>;
@@ -78,7 +79,7 @@ fn formulas_and_cells_without_a_list_are_left_alone() {
     app.begin_edit(Some("=UPPER(\"flaking\")".into()), false);
     let ed = app.editor.as_ref().unwrap();
     assert!(ed.autocomplete.iter().all(|s| s != FLAKING), "no entry is suggested for a formula");
-    assert_eq!(ed.list_commit(), Ok(None), "a formula is entered as typed");
+    assert_eq!(ed.list_commit(), ListCommit::Typed, "a formula is entered as typed");
     app.cancel_edit();
     app.run("selection.set", json!({"cell": "B1"})).unwrap();
     assert!(enter(&mut app, "flak"));

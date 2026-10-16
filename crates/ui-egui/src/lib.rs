@@ -921,12 +921,12 @@ impl SheetApp {
         // A drop-down list cell takes the entry the text points to ("flaking" → "A6 - Flaking").
         // With several, the suggestions stay open until one is picked.
         match ed.list_commit() {
-            Ok(Some(entry)) => {
+            editor::ListCommit::Entry(entry) => {
                 ed.text = entry;
                 ed.completion = None;
             }
-            Ok(None) => {}
-            Err(()) => {
+            editor::ListCommit::Typed => {}
+            editor::ListCommit::Choose => {
                 if ed.autocomplete.is_empty() {
                     ed.update_list_suggestions();
                 }

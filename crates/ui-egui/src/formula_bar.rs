@@ -371,7 +371,8 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
                     for (i, n) in ed.autocomplete.iter().enumerate() {
                         let sel = i == ed.ac_index;
                         let label = if list { n.clone() } else { format!("ƒ  {n}") };
-                        let r = ui.add(egui::Button::selectable(sel, egui::RichText::new(label).font(theme::ui_font(12.5))).min_size(vec2(220.0, 20.0)));
+                        let r =
+                            ui.add(egui::Button::selectable(sel, egui::RichText::new(label).font(theme::ui_font(12.5))).min_size(vec2(220.0, 20.0)));
                         if r.clicked() {
                             pick = Some(i);
                         }

@@ -16,6 +16,17 @@ pub const REF_COLORS: [Color32; 8] = [
     Color32::from_rgb(0x8A, 0x7A, 0x1F),
 ];
 
+/// What a cell with a drop-down list gets when its edit is committed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ListCommit {
+    /// The text as typed (no entry meant, or a formula): the validation judges it.
+    Typed,
+    /// This entry of the list.
+    Entry(String),
+    /// Several entries match and none was picked yet.
+    Choose,
+}
+
 #[derive(Clone, Debug)]
 pub struct EditState {
     pub sheet: usize,
@@ -156,22 +167,21 @@ impl EditState {
 
     /// What a cell with a drop-down list gets when the edit is committed: the entry the text is
     /// (whatever its case), the one entry it points to, or the one picked with the arrow keys.
-    /// `None` keeps the text as typed (the validation then judges it); `Err` means several
-    /// entries match and none was picked yet.
-    pub fn list_commit(&self) -> Result<Option<String>, ()> {
-        let Some(items) = &self.list else { return Ok(None) };
+    pub fn list_commit(&self) -> ListCommit {
+        let Some(items) = &self.list else { return ListCommit::Typed };
         if self.is_formula() || self.text.trim().is_empty() {
-            return Ok(None);
+            return ListCommit::Typed;
         }
         if let Some(entry) = gridcraft_engine::cmd::data::list_entry(items, &self.text) {
-            return Ok(Some(entry));
+            return ListCommit::Entry(entry);
         }
         let found = gridcraft_engine::cmd::data::list_suggestions(items, &self.text);
-        match found.len() {
-            0 => Ok(None),
-            1 => Ok(found.into_iter().next()),
-            _ if self.ac_moved && self.autocomplete == found => Ok(found.get(self.ac_index).cloned()),
-            _ => Err(()),
+        let picked = if self.ac_moved && self.autocomplete == found { found.get(self.ac_index).cloned() } else { None };
+        match (found.len(), picked) {
+            (0, _) => ListCommit::Typed,
+            (1, _) => found.into_iter().next().map_or(ListCommit::Typed, ListCommit::Entry),
+            (_, Some(entry)) => ListCommit::Entry(entry),
+            _ => ListCommit::Choose,
         }
     }
 
