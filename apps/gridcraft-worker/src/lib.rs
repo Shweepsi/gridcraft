@@ -28,6 +28,11 @@ const PENDING: &str = "the last message is still to be committed or rolled back"
 const LOST: &str = "the shared workbook is no longer open";
 const BUSY: &str = "the engine is busy";
 
+/// Undo and redo steps kept. Each holds its own copy of the sheets an edit touched, a few
+/// megabytes for a full sheet, and a Worker's isolate has 128 MB: the engine's 100 would fill it
+/// after some forty edits.
+const HISTORY: usize = 10;
+
 /// The MCP tools, as `tools/list` lists them.
 pub fn tools() -> Value {
     Value::Array(gridcraft_mcp::tool_definitions())
@@ -143,6 +148,7 @@ impl Shift {
         let mut engine = self.engine.0.try_borrow_mut().map_err(|_| BUSY.to_string())?;
         let d = engine.session.doc_by_uid_mut(self.uid).ok_or_else(|| LOST.to_string())?;
         d.saved = d.wb.clone();
+        trim_history(d);
         self.last = d.wb.clone();
         drop(engine);
         self.before = None;
@@ -164,6 +170,14 @@ impl Shift {
     /// The workbook's defined names: `[{name, scope, formula}]`, `scope` null for the workbook's.
     pub fn names(&self) -> Value {
         Value::Array(self.last.names.iter().map(|n| json!({"name": n.name, "scope": n.scope, "formula": n.formula})).collect())
+    }
+}
+
+/// Drops the oldest undo and redo steps past [`HISTORY`].
+fn trim_history(d: &mut DocState) {
+    for steps in [&mut d.undo, &mut d.redo] {
+        let extra = steps.len().saturating_sub(HISTORY);
+        steps.drain(..extra);
     }
 }
 
@@ -346,6 +360,18 @@ mod tests {
         s.commit().unwrap();
         assert_eq!(s.engine.0.borrow().session.documents().len(), 1);
         assert_eq!(read(&mut s, "A2"), 2.0);
+    }
+
+    #[test]
+    fn history_is_kept_short() {
+        let mut s = open(&[]);
+        for i in 0..HISTORY + 5 {
+            result(&mut s, "set_cell", json!({"cell": "B1", "input": i.to_string()}));
+        }
+        assert_eq!(s.engine.0.borrow().session.documents()[0].undo.len(), HISTORY);
+        // The newest steps are the ones kept.
+        result(&mut s, "undo", json!({}));
+        assert_eq!(read(&mut s, "B1"), (HISTORY + 3) as f64);
     }
 
     #[test]
