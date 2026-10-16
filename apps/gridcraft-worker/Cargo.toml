@@ -1,0 +1,22 @@
+[package]
+name = "gridcraft-worker"
+description = "GridCraft's engine and MCP server in a Cloudflare Worker: a shared workbook driven cell by cell (wasm-bindgen)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+# cdylib for the Worker (packaging/worker/build.sh), rlib for the native tests.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gridcraft-engine = { workspace = true }
+gridcraft-mcp = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"

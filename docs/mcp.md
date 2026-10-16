@@ -85,3 +85,25 @@ methods `-32601`.
 `Server::new(Box::new(Remote::connect(&control_addr("7979"))?))`, then `Server::serve(stdin, stdout)` or
 `Server::handle_line(line) -> Option<String>`. Implement the `Backend` trait (`call(method, params)`) to drive another
 host.
+
+## In a Cloudflare Worker (shared workbooks)
+
+`apps/gridcraft-worker` is the engine and this MCP server built for a Cloudflare Worker
+(`wasm-bindgen --target web`, see `packaging/worker/package.sh` and `.github/workflows/worker.yml`).
+It drives one shared workbook, a template plus the cells edited on top of it (`gridcraft_engine::collab`),
+and leaves storage and the network to the Worker's JavaScript:
+
+| Export | Does |
+|---|---|
+| `tools()` | The tool list, as JSON (`tools/list`). |
+| `new Shift(name, bytes, cells)` | Opens the template with the stored cells (`[{sheet, cell, c}]`) on top. |
+| `shift.apply(cells)` | Another device's cells, applied without being reported back. |
+| `shift.handle(line)` | One JSON-RPC message → `{response, changes, structural, lost}`. |
+| `shift.commit()` / `shift.rollback()` | Keep or take back what that message did (history included). |
+| `shift.names()` | The defined names, `[{name, scope, formula}]`. |
+
+`changes` are the cells to store for the other devices. `structural` means the message changed what
+cell changes don't carry (sheets, names, column widths, row settings other than automatic heights,
+merges, conditional formats, validations, tables, comments, objects, protection): the copies would
+disagree for good, so the host rolls it back. `lost` means the shared workbook was closed. Files
+opened or created by a message are closed again: every tool works on the shared workbook.

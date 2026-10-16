@@ -1,0 +1,92 @@
+# GridCraft's engine for working-book's Cloudflare Worker (apps/gridcraft-worker, the MCP server
+# on shared workbooks): the crate's tests and lints, then the wasm build
+# (packaging/worker/package.sh). Given a tag, the zip is attached to that release, which
+# working-book pins by tag and SHA-256.
+name: Worker engine
+
+on:
+  push:
+    branches: [mcp-cloud, shared-cells]
+    paths:
+      - 'apps/gridcraft-worker/**'
+      - 'crates/**'
+      - 'Cargo.lock'
+      - 'packaging/worker/**'
+      - '.github/workflows/worker.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release to attach the zip to, created if missing (e.g. v0.7.0-shared.6). Empty: build only."
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: worker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test, lint and build the Worker engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust (stable + clippy, wasm32)
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt --target wasm32-unknown-unknown
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # Reported, not enforced: this crate is written without a local toolchain.
+      - name: Formatting
+        continue-on-error: true
+        run: cargo fmt -p gridcraft-worker -- --check
+
+      - name: Tests (native)
+        run: cargo test -p gridcraft-worker --locked
+
+      - name: Clippy (native and wasm32)
+        run: |
+          cargo clippy -p gridcraft-worker --all-targets --locked -- -D warnings
+          cargo clippy -p gridcraft-worker --target wasm32-unknown-unknown --locked -- -D warnings
+
+      - name: wasm-bindgen CLI (the version Cargo.lock pins)
+        run: |
+          v=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/"/, "", $3); print $3; exit }' Cargo.lock)
+          cargo install wasm-bindgen-cli --version "$v" --locked
+
+      - name: Build and zip
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          # A tagged build is named after its release: gridcraft-worker-0.7.0-shared.6.zip.
+          if [ -n "$TAG" ]; then export GRIDCRAFT_VERSION="${TAG#v}"; fi
+          packaging/worker/package.sh
+
+      - name: SHA-256
+        run: sha256sum dist/release/gridcraft-worker-*.zip | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gridcraft-worker
+          path: dist/release/gridcraft-worker-*.zip
+
+      - name: Attach to the release
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          zip=$(ls dist/release/gridcraft-worker-*.zip)
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "$TAG" \
+                 --notes "GridCraft's engine for working-book's Worker (MCP on shared workbooks), built from $GITHUB_SHA."
+          gh release upload "$TAG" "$zip" --clobber
