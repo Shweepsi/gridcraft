@@ -6,7 +6,7 @@ name: Worker engine
 
 on:
   push:
-    branches: [mcp-cloud, shared-cells]
+    branches: [shared-cells]
     paths:
       - 'apps/gridcraft-worker/**'
       - 'crates/**'
