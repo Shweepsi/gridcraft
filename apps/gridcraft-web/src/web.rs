@@ -91,6 +91,10 @@ pub fn start() {
                     ) {
                         app.ui.language = language;
                     }
+                    // `?formulabar=0`: start without the formula bar (View ▸ Formula Bar shows it).
+                    if query_param("formulabar").as_deref() == Some("0") {
+                        app.session.prefs.formula_bar = false;
+                    }
                     // `?animations=0`: start without motion (the selection outline and zoom jump
                     // instead of gliding); View ▸ Animations turns it back on.
                     if query_param("animations").as_deref() == Some("0") {
@@ -101,6 +105,8 @@ pub fn start() {
                         if let Some(author) = query_param("author") {
                             crate::host::Bridge::set_author(&mut app, &author);
                         }
+                        // `?gridlines=0`, `?headings=0`: shared workbooks open without them.
+                        bridge.hide_on_open(query_param("gridlines").as_deref() == Some("0"), query_param("headings").as_deref() == Some("0"));
                         bridge.post_ready();
                     }
                     Ok(Box::new(WebShell { app, inbox, bridge: app_bridge }))

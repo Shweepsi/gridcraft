@@ -69,6 +69,8 @@ pub struct Bridge {
     active_uid: Rc<Cell<u64>>,
     /// The theme the parent asked for, waiting for the next frame.
     theme: Rc<RefCell<Option<String>>>,
+    /// Gridlines and headings to hide on every sheet of a shared workbook as it opens.
+    hide_view: Rc<Cell<(bool, bool)>>,
 }
 
 impl Bridge {
@@ -91,6 +93,7 @@ impl Bridge {
             incoming: Rc::default(),
             active_uid: Rc::default(),
             theme: Rc::default(),
+            hide_view: Rc::default(),
         })
     }
 
@@ -150,6 +153,13 @@ impl Bridge {
         }
     }
 
+    /// Every sheet of the shared workbooks opened from now on shows no gridlines and/or no
+    /// headings. A view setting of this copy only: it is never reported to the other copies, and
+    /// View ▸ Gridlines and Headings still turn them back on.
+    pub fn hide_on_open(&self, gridlines: bool, headings: bool) {
+        self.hide_view.set((gridlines, headings));
+    }
+
     /// After each frame, for a shared workbook: adopt the document an open added, report this
     /// user's edits, then apply the other copies' (in that order, so an edit made this frame is
     /// on its way before a peer's lands on top of it).
@@ -163,7 +173,17 @@ impl Bridge {
             let uid = d.uid;
             let name = d.display_title();
             let sheets: Vec<String> = d.wb.sheets.iter().map(|s| s.name.clone()).collect();
-            *self.shared.borrow_mut() = Some((uid, d.wb.clone()));
+            let (no_gridlines, no_headings) = self.hide_view.get();
+            if let Some(d) = app.session.doc_by_uid_mut(uid) {
+                if no_gridlines || no_headings {
+                    for s in &mut Arc::make_mut(&mut d.wb).sheets {
+                        let s = Arc::make_mut(s);
+                        s.show_gridlines &= !no_gridlines;
+                        s.show_headings &= !no_headings;
+                    }
+                }
+                *self.shared.borrow_mut() = Some((uid, d.wb.clone()));
+            }
             // One shared workbook at a time: what the frame shows is what the parent follows.
             // The previous one is stored already, and nothing with unsaved changes is closed.
             for i in (0..app.session.documents().len()).rev() {
