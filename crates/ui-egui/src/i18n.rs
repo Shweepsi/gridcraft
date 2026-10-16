@@ -624,6 +624,9 @@ mod tests {
         assert_eq!(Language::De.tr("Sheet1!A1"), "Sheet1!A1");
         assert_eq!(Language::Fr.tr("Data"), "Données");
         assert_eq!(Language::Fr.tr("Sheet1!A1"), "Sheet1!A1");
+        assert_eq!(Language::Fr.tr("Cancel"), "Annuler");
+        // A `context|label` key translates to the label alone.
+        assert_eq!(Language::Fr.tr("Sheet Options|View"), "Affichage");
         assert_eq!(Language::PtBr.tr("Date"), "Data");
         assert_eq!(Language::PtBr.tr("Sheet1!A1"), "Sheet1!A1");
         assert_eq!(Language::Ja.tr("Sheet1!A1"), "Sheet1!A1");

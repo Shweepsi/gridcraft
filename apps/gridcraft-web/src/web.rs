@@ -79,14 +79,22 @@ pub fn start() {
                     {
                         log::warn!("?theme={mode}: {e}");
                     }
-                    // Follow the browser's language, except a CJK one: the web build has no system
-                    // CJK fonts (none are bundled), so that interface would render as tofu.
-                    let browser = gridcraft_ui_egui::i18n::Language::system();
+                    // `?lang=fr`: the embedding page's language whatever the browser's; otherwise
+                    // the browser's. Never a CJK one: the web build has no system CJK fonts (none
+                    // are bundled), so that interface would render as tofu.
+                    let language = query_param("lang")
+                        .and_then(|code| gridcraft_ui_egui::i18n::Language::parse(&code))
+                        .unwrap_or_else(gridcraft_ui_egui::i18n::Language::system);
                     if !matches!(
-                        browser,
+                        language,
                         gridcraft_ui_egui::i18n::Language::Zh | gridcraft_ui_egui::i18n::Language::Ja | gridcraft_ui_egui::i18n::Language::Ko
                     ) {
-                        app.ui.language = browser;
+                        app.ui.language = language;
+                    }
+                    // `?animations=0`: start without motion (the selection outline and zoom jump
+                    // instead of gliding); View ▸ Animations turns it back on.
+                    if query_param("animations").as_deref() == Some("0") {
+                        app.ui.animations = false;
                     }
                     SheetApp::setup_context_for_language(&cc.egui_ctx, false, app.ui.language);
                     if let Some(bridge) = &app_bridge {
