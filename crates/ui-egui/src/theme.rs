@@ -237,9 +237,36 @@ pub(crate) fn drop_unparseable_fonts(fonts: &mut FontDefinitions) {
     }
 }
 
+// The browser has no font files to read: the web shell fetches some next to the page (Carlito for
+// the cell roles, so cells don't fall back to egui's thin built-in face) and adds them here.
 #[cfg(target_arch = "wasm32")]
-fn try_load(_paths: &[(&str, u32)]) -> Option<FontData> {
-    None
+thread_local! {
+    static WEB_FONTS: std::cell::RefCell<Vec<(String, &'static [u8])>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// A font file the web shell fetched, by file name (`Carlito-Regular.ttf`): a candidate path ending
+/// in that name loads it. Add it before the font set is built.
+#[cfg(target_arch = "wasm32")]
+pub fn add_web_font(file: &str, bytes: Vec<u8>) {
+    if !font_parses(&bytes, 0) {
+        log::warn!("skipping font {file}: not a font file egui can read");
+        return;
+    }
+    // Kept for the page's life: every font set rebuild reuses the bytes without copying them.
+    let bytes: &'static [u8] = Box::leak(bytes.into_boxed_slice());
+    WEB_FONTS.with_borrow_mut(|fonts| fonts.push((format!("/{file}"), bytes)));
+}
+
+#[cfg(target_arch = "wasm32")]
+fn try_load(paths: &[(&str, u32)]) -> Option<FontData> {
+    WEB_FONTS.with_borrow(|fonts| {
+        paths.iter().find_map(|(p, index)| {
+            let (_, bytes) = fonts.iter().find(|(file, _)| p.ends_with(file.as_str()))?;
+            let mut fd = FontData::from_static(bytes);
+            fd.index = *index;
+            Some(fd)
+        })
+    })
 }
 
 fn home_fonts(file: &str) -> String {

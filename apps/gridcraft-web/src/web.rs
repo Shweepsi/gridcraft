@@ -35,6 +35,7 @@ pub fn start() {
         // `?host=parent`: a same-origin page framing GridCraft (such as a Nextcloud app) opens
         // workbooks in it and stores what it saves (`host`).
         let bridge = if query_param("host").as_deref() == Some("parent") { crate::host::Bridge::new() } else { None };
+        load_fonts().await;
         let app_bridge = bridge.clone();
         let result = eframe::WebRunner::new()
             .start(
@@ -123,6 +124,33 @@ pub fn start() {
             }
         }
     });
+}
+
+/// The cell fonts packaged next to the page (`fonts/`, see packaging/web): the browser lets the
+/// app read no system font, so without them cells use egui's thin built-in face, blurry on a
+/// screen at 100 % scaling. Fetched together before the app starts (the browser caches them); a
+/// missing one only costs that face.
+const WEB_FONTS: [&str; 4] = ["Carlito-Regular.ttf", "Carlito-Bold.ttf", "Carlito-Italic.ttf", "Carlito-BoldItalic.ttf"];
+
+async fn load_fonts() {
+    let Some(window) = web_sys::window() else { return };
+    let pending: Vec<_> = WEB_FONTS.iter().map(|file| (*file, window.fetch_with_str(&format!("fonts/{file}")))).collect();
+    for (file, promise) in pending {
+        match fetch_bytes(promise).await {
+            Ok(bytes) => gridcraft_ui_egui::theme::add_web_font(file, bytes),
+            Err(e) => log::warn!("font {file} not loaded: {e}"),
+        }
+    }
+}
+
+async fn fetch_bytes(promise: js_sys::Promise) -> Result<Vec<u8>, String> {
+    let js = |e: JsValue| format!("{e:?}");
+    let response: web_sys::Response = wasm_bindgen_futures::JsFuture::from(promise).await.map_err(js)?.dyn_into().map_err(js)?;
+    if !response.ok() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+    let buffer = wasm_bindgen_futures::JsFuture::from(response.array_buffer().map_err(js)?).await.map_err(js)?;
+    Ok(js_sys::Uint8Array::new(&buffer).to_vec())
 }
 
 fn query() -> String {

@@ -39,6 +39,12 @@ mkdir -p "$WORK/$NAME"
 cp -R "$SITE/." "$WORK/$NAME/"
 # Sample server configs (MIME type, caching, compression); harmless where unused.
 cp "$HERE/_headers" "$HERE/.htaccess" "$WORK/$NAME/"
+# The cell fonts the web shell fetches from fonts/ (apps/gridcraft-web/src/web.rs). Not in this
+# repo (fonts live outside it): the Web workflow downloads them, pinned, into this directory.
+if [ -n "${GRIDCRAFT_WEB_FONTS_DIR:-}" ]; then
+  mkdir -p "$WORK/$NAME/fonts"
+  cp "$GRIDCRAFT_WEB_FONTS_DIR"/* "$WORK/$NAME/fonts/"
+fi
 cp "$HERE/README.md" "$WORK/$NAME/HOSTING.md"
 copy_docs "$WORK/$NAME"
 rm -f "$DIST/$NAME.zip"
