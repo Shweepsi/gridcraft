@@ -27,8 +27,8 @@
 //! - `gridcraft:theme` (from the parent): `{ mode }`, `light`, `dark` or `system`, when the
 //!   page's own theme changes (`?theme=` gives the one to start with).
 //! - `gridcraft:select` (from the parent): `{ range }`, such as `"Suivi!N47:AA47"`: selects it
-//!   like Go To (switching sheet if it names one) and scrolls it into view, for a page that
-//!   points at a cell of the workbook.
+//!   like Go To (switching sheet if it names one) and brings it to the middle of the view, for
+//!   a page that points at a cell of the workbook.
 //!
 //! Only the parent window on the page's own origin is heard or answered. In host mode the page
 //! starts with an empty workbook instead of a sample, and the parent guards leaving the page.
@@ -140,7 +140,10 @@ impl Bridge {
         }
         if let Some(range) = self.select.borrow_mut().take() {
             match app.run("edit.goTo", serde_json::json!({ "reference": range })) {
-                Ok(_) => app.grid.ensure_visible = true,
+                Ok(_) => {
+                    app.grid.ensure_visible = true;
+                    app.grid.reveal_centered = true;
+                }
                 Err(e) => log::warn!("gridcraft:select {range}: {e}"),
             }
         }
