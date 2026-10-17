@@ -26,6 +26,9 @@
 //!
 //! - `gridcraft:theme` (from the parent): `{ mode }`, `light`, `dark` or `system`, when the
 //!   page's own theme changes (`?theme=` gives the one to start with).
+//! - `gridcraft:select` (from the parent): `{ range }`, such as `"Suivi!N47:AA47"`: selects it
+//!   like Go To (switching sheet if it names one) and scrolls it into view, for a page that
+//!   points at a cell of the workbook.
 //!
 //! Only the parent window on the page's own origin is heard or answered. In host mode the page
 //! starts with an empty workbook instead of a sample, and the parent guards leaving the page.
@@ -69,6 +72,8 @@ pub struct Bridge {
     active_uid: Rc<Cell<u64>>,
     /// The theme the parent asked for, waiting for the next frame.
     theme: Rc<RefCell<Option<String>>>,
+    /// The range the parent asked to select, waiting for the next frame.
+    select: Rc<RefCell<Option<String>>>,
     /// Gridlines and headings to hide on every sheet of a shared workbook as it opens.
     hide_view: Rc<Cell<(bool, bool)>>,
 }
@@ -93,6 +98,7 @@ impl Bridge {
             incoming: Rc::default(),
             active_uid: Rc::default(),
             theme: Rc::default(),
+            select: Rc::default(),
             hide_view: Rc::default(),
         })
     }
@@ -125,12 +131,18 @@ impl Bridge {
         self.send(&[("type", "gridcraft:failed".into()), ("error", error.into())]);
     }
 
-    /// Before each frame: the theme the parent asked for since the last one.
+    /// Before each frame: the theme and the selection the parent asked for since the last one.
     pub fn before_frame(&self, app: &mut SheetApp) {
         if let Some(mode) = self.theme.borrow_mut().take()
             && let Err(e) = app.run("view.theme", serde_json::json!({ "mode": mode }))
         {
             log::warn!("gridcraft:theme {mode}: {e}");
+        }
+        if let Some(range) = self.select.borrow_mut().take() {
+            match app.run("edit.goTo", serde_json::json!({ "reference": range })) {
+                Ok(_) => app.grid.ensure_visible = true,
+                Err(e) => log::warn!("gridcraft:select {range}: {e}"),
+            }
         }
     }
 
@@ -252,6 +264,7 @@ impl Bridge {
         let incoming = self.incoming.clone();
         let active_uid = self.active_uid.clone();
         let theme = self.theme.clone();
+        let select = self.select.clone();
         let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |event: web_sys::MessageEvent| {
             if event.origin() != origin || !event.source().is_some_and(|s| js_sys::Object::is(&s, &parent)) {
                 return;
@@ -281,6 +294,13 @@ impl Bridge {
                 Some("gridcraft:theme") => {
                     if let Some(mode) = string(&data, "mode") {
                         *theme.borrow_mut() = Some(mode);
+                        ctx.request_repaint();
+                    }
+                    return;
+                }
+                Some("gridcraft:select") => {
+                    if let Some(range) = string(&data, "range").filter(|r| !r.trim().is_empty()) {
+                        *select.borrow_mut() = Some(range);
                         ctx.request_repaint();
                     }
                     return;
