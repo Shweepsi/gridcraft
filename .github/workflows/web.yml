@@ -67,7 +67,11 @@ jobs:
         run: cargo clippy -p gridcraft-core -p gridcraft-engine -p gridcraft-ui-egui --all-targets --locked -- -D warnings
 
   build:
-    name: Build the web zip
+    name: Build the web zip (${{ matrix.renderer }})
+    strategy:
+      fail-fast: false
+      matrix:
+        renderer: [wgpu, glow]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -108,17 +112,23 @@ jobs:
       - name: Build and zip
         env:
           TAG: ${{ inputs.tag }}
+          GRIDCRAFT_WEB_RENDERER: ${{ matrix.renderer }}
         run: |
-          # A tagged build is named after its release: gridcraft-web-0.19.1-shared.1.zip.
+          # A tagged build is named after its release: gridcraft-web-0.19.1-shared.1.zip, and
+          # -glow.zip for the WebGL2-only variant (half the download).
           if [ -n "$TAG" ]; then export GRIDCRAFT_VERSION="${TAG#v}"; fi
           packaging/web/package.sh
+          if [ "$GRIDCRAFT_WEB_RENDERER" = glow ]; then
+            cd dist/release
+            for z in gridcraft-web-*.zip; do mv "$z" "${z%.zip}-glow.zip"; done
+          fi
 
       - name: SHA-256
         run: sha256sum dist/release/gridcraft-web-*.zip | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: gridcraft-web
+          name: gridcraft-web-${{ matrix.renderer }}
           path: dist/release/gridcraft-web-*.zip
 
       - name: Attach to the release

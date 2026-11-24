@@ -20,23 +20,30 @@ pub fn start() {
             log::error!("missing <canvas id=\"{CANVAS_ID}\">");
             return;
         };
-        let mut options = eframe::WebOptions::default();
-        if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
-            let default_descriptor = std::sync::Arc::clone(&setup.device_descriptor);
+        #[cfg(feature = "renderer-wgpu")]
+        let options = {
+            let mut options = eframe::WebOptions::default();
+            if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
+                let default_descriptor = std::sync::Arc::clone(&setup.device_descriptor);
 
-            setup.device_descriptor = std::sync::Arc::new(move |adapter| {
-                let mut descriptor = default_descriptor(adapter);
+                setup.device_descriptor = std::sync::Arc::new(move |adapter| {
+                    let mut descriptor = default_descriptor(adapter);
 
-                descriptor.required_limits = descriptor.required_limits.or_worse_values_from(&adapter.limits());
+                    descriptor.required_limits = descriptor.required_limits.or_worse_values_from(&adapter.limits());
 
-                descriptor
-            });
-        }
-        if query().contains("webgl")
-            && let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup
-        {
-            create.instance_descriptor.backends = eframe::wgpu::Backends::GL;
-        }
+                    descriptor
+                });
+            }
+            if query().contains("webgl")
+                && let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup
+            {
+                create.instance_descriptor.backends = eframe::wgpu::Backends::GL;
+            }
+            options
+        };
+        // glow is WebGL2 whatever the query says.
+        #[cfg(not(feature = "renderer-wgpu"))]
+        let options = eframe::WebOptions::default();
         // Host modes (`craft-web-host`): `?host=parent`, a same-origin page framing GridCraft (such
         // as a Nextcloud app), opens workbooks in it and stores what it saves (`host`). Unframed
         // there is no parent, so that URL on its own stays the normal app with downloads.
