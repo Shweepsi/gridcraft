@@ -15,6 +15,7 @@ mod el;
 mod es;
 mod es_functions;
 mod fr;
+mod fr_suivi;
 mod it;
 mod ja;
 mod ko;
@@ -210,7 +211,7 @@ impl Language {
             Self::PtBr => pt::translate(text),
             Self::De => de::translate(text),
             Self::Cs => cs::translate(text),
-            Self::Fr => fr::translate(text),
+            Self::Fr => fr::translate(text).or_else(|| fr_suivi::translate(text)),
             Self::Sr => sr::translate(text),
             Self::Tr => tr::translate(text),
             Self::Pl => pl::translate(text),
