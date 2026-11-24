@@ -1036,6 +1036,9 @@ pub(super) fn translate(text: &str) -> Option<&'static str> {
         "Report Layout" => "Disposition du rapport",
         "Compact" => "Compacte",
         "Tabular" => "Tabulaire",
+        "Page order" => "Ordre des pages",
+        "Down, then over" => "Vers le bas, puis vers la droite",
+        "Over, then down" => "Vers la droite, puis vers le bas",
         _ => return None,
     })
 }
