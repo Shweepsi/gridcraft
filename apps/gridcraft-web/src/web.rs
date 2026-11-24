@@ -43,6 +43,7 @@ pub fn start() {
         // `data-host="page"` on the canvas opts a page in instead: it runs GridCraft in its own
         // document and talks over DOM `CustomEvent`s on the canvas.
         let bridge = crate::host::Bridge::detect(&canvas);
+        load_fonts().await;
         let app_bridge = bridge.clone();
         let result = eframe::WebRunner::new()
             .start(
@@ -91,6 +92,10 @@ pub fn start() {
                     let (stored_ui, stored_prefs) = (stored(crate::prefs::UI_KEY), stored(crate::prefs::PREFS_KEY));
                     crate::prefs::restore(&mut app, stored_ui.as_deref(), stored_prefs.as_deref());
                     let mut prefs = crate::prefs::PrefsSync::new(stored_ui, stored_prefs);
+                    // The embedding page's options win over the stored preferences.
+                    if app_bridge.is_some() {
+                        crate::embed::apply(&mut app, app_bridge.as_ref().and_then(|b| b.shared()));
+                    }
                     SheetApp::setup_context_for_language(&cc.egui_ctx, false, app.ui.language);
                     if let Some(bridge) = &app_bridge {
                         prefs.keep_user_name(app.session.prefs.user_name.clone());
@@ -114,6 +119,31 @@ pub fn start() {
             }
         }
     });
+}
+
+// Carlito, fetched next to the page (the web build workflow puts it in `fonts/`), for the cell roles:
+// without it cells fall back to egui's thin built-in face.
+const WEB_FONTS: [&str; 4] = ["Carlito-Regular.ttf", "Carlito-Bold.ttf", "Carlito-Italic.ttf", "Carlito-BoldItalic.ttf"];
+
+async fn load_fonts() {
+    let Some(window) = web_sys::window() else { return };
+    let pending: Vec<_> = WEB_FONTS.iter().map(|file| (*file, window.fetch_with_str(&format!("fonts/{file}")))).collect();
+    for (file, promise) in pending {
+        match fetch_bytes(promise).await {
+            Ok(bytes) => gridcraft_ui_egui::theme::add_web_font(file, bytes),
+            Err(e) => log::warn!("font {file} not loaded: {e}"),
+        }
+    }
+}
+
+async fn fetch_bytes(promise: js_sys::Promise) -> Result<Vec<u8>, String> {
+    let js = |e: JsValue| format!("{e:?}");
+    let response: web_sys::Response = wasm_bindgen_futures::JsFuture::from(promise).await.map_err(js)?.dyn_into().map_err(js)?;
+    if !response.ok() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+    let buffer = wasm_bindgen_futures::JsFuture::from(response.array_buffer().map_err(js)?).await.map_err(js)?;
+    Ok(js_sys::Uint8Array::new(&buffer).to_vec())
 }
 
 fn query() -> String {
@@ -180,6 +210,9 @@ impl eframe::App for WebShell {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if let Some(bridge) = &self.bridge {
+            bridge.before_frame(&mut self.app);
+        }
         self.app.ui(ui);
         if let Some(bridge) = &self.bridge {
             bridge.sync(&mut self.app);

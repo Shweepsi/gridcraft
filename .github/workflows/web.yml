@@ -1,0 +1,134 @@
+# The browser build working-book embeds (apps/gridcraft-web): the engine's and the UI's tests
+# (reported alongside, they don't hold the zip back), then packaging/web/package.sh. Given a tag,
+# the zip is attached to that release as gridcraft-web-<version>.zip, which working-book pins by
+# tag and SHA-256 (scripts/fetch-gridcraft.sh there).
+name: Web
+
+on:
+  push:
+    branches: [shared-cells-0.19]
+    paths:
+      - 'crates/**'
+      - 'apps/gridcraft-web/**'
+      - 'Cargo.lock'
+      - 'packaging/web/**'
+      - '.github/workflows/web.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release to attach the zip to, created if missing (e.g. v0.19.1-shared.1). Empty: build only."
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  test:
+    name: Engine and UI tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Linux build dependencies (winit, wgpu, rfd)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev \
+            libxi-dev libgtk-3-dev libfontconfig1-dev libfreetype-dev mesa-vulkan-drivers
+
+      - name: Install Rust (stable + clippy, rustfmt)
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # Reported, not enforced: changes here are written without a local toolchain.
+      - name: Formatting
+        continue-on-error: true
+        run: cargo fmt -p gridcraft-core -p gridcraft-engine -p gridcraft-ui-egui -- --check
+
+      - name: Tests
+        run: |
+          cargo test -p gridcraft-core -p gridcraft-engine --lib --locked
+          cargo test -p gridcraft-ui-egui --locked
+
+      - name: Clippy
+        run: cargo clippy -p gridcraft-core -p gridcraft-engine -p gridcraft-ui-egui --all-targets --locked -- -D warnings
+
+  build:
+    name: Build the web zip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust (stable + wasm32)
+        run: |
+          rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        with:
+          tool: trunk@0.21.14
+
+      # Carlito (Calibri's metrics, SIL OFL 1.1) for the cells: the browser build can't read the
+      # system's fonts. Pinned to a google/fonts commit and checked; shipped in the zip's fonts/.
+      - name: Cell fonts
+        env:
+          FONTS_REV: 3dd78844021e948ceb633d1dcee3f7885561b5d9
+        run: |
+          dir="$RUNNER_TEMP/web-fonts"
+          mkdir -p "$dir"
+          cd "$dir"
+          while read -r sum file; do
+            curl -fsSL --retry 3 -o "$file" "https://raw.githubusercontent.com/google/fonts/$FONTS_REV/ofl/carlito/$file"
+            echo "$sum  $file" | sha256sum -c --quiet -
+          done <<'SUMS'
+          f6418f708baede9789daef5d458c0f53d2a888af9820e8062934e504fedc6595 Carlito-Regular.ttf
+          bb5d20f79b82599ec72983597437373a80f2d2085fa91fc144fd74e876a594db Carlito-Bold.ttf
+          0b019225e58d702bfedcbd35c21696769f8ee115cb6343f84c2f240312450d1c Carlito-Italic.ttf
+          b32928186c119599e03ca6a1ffc680fdcb7fac95772f4b95d989cf6cd3861517 Carlito-BoldItalic.ttf
+          58402f82a7c332a700294988fe7554fbb0a63a8d27ccc1ee3bbc640311990a00 OFL.txt
+          SUMS
+          echo "GRIDCRAFT_WEB_FONTS_DIR=$dir" >> "$GITHUB_ENV"
+
+      - name: Build and zip
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          # A tagged build is named after its release: gridcraft-web-0.19.1-shared.1.zip.
+          if [ -n "$TAG" ]; then export GRIDCRAFT_VERSION="${TAG#v}"; fi
+          packaging/web/package.sh
+
+      - name: SHA-256
+        run: sha256sum dist/release/gridcraft-web-*.zip | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gridcraft-web
+          path: dist/release/gridcraft-web-*.zip
+
+      - name: Attach to the release
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          zip=$(ls dist/release/gridcraft-web-*.zip)
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "$TAG" \
+                 --notes "GridCraft for working-book's Suivi tab, built from $GITHUB_SHA."
+          gh release upload "$TAG" "$zip" --clobber

@@ -3,7 +3,7 @@ use super::{
     parse_sqref, read_color,
 };
 
-fn cf_op(s: Option<&str>) -> CfOperator {
+pub(super) fn cf_op(s: Option<&str>) -> CfOperator {
     match s.unwrap_or("between") {
         "notBetween" => CfOperator::NotBetween,
         "equal" => CfOperator::Equal,

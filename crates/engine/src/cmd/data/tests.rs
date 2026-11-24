@@ -1,5 +1,41 @@
 use super::*;
 
+fn entries(list: &[&str]) -> Vec<String> {
+    list.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn list_suggestions_match_the_start_of_words() {
+    let items = entries(&["A6 - Flaking", "D2 - All Raw Glass - Float Defects", "D3 - All Raw Glass - Lami Defects", "B9 - Scratches", ""]);
+    assert_eq!(list_suggestions(&items, "flaking"), ["A6 - Flaking"]);
+    assert_eq!(list_suggestions(&items, "FLAK"), ["A6 - Flaking"]);
+    assert_eq!(list_suggestions(&items, "a6"), ["A6 - Flaking"]);
+    assert_eq!(list_suggestions(&items, "d3"), ["D3 - All Raw Glass - Lami Defects"]);
+    assert_eq!(list_suggestions(&items, "glass"), ["D2 - All Raw Glass - Float Defects", "D3 - All Raw Glass - Lami Defects"]);
+    assert_eq!(list_suggestions(&items, "raw lami"), ["D3 - All Raw Glass - Lami Defects"]);
+    // Inside a word is not a match: "lass" isn't "glass".
+    assert!(list_suggestions(&items, "lass").is_empty());
+    assert!(list_suggestions(&items, "zzz").is_empty());
+    assert!(list_suggestions(&items, " - ").is_empty());
+}
+
+#[test]
+fn list_suggestions_rank_ignore_accents_and_repeats() {
+    let items = entries(&["Scratch big", "Big scratch", "Éclat", "Big scratch"]);
+    assert_eq!(list_suggestions(&items, "big"), ["Big scratch", "Scratch big"]);
+    assert_eq!(list_suggestions(&items, "ecl"), ["Éclat"]);
+    assert_eq!(list_suggestions(&entries(&["Eclat"]), "écl"), ["Eclat"]);
+}
+
+#[test]
+fn list_entry_is_the_typed_entry_whatever_the_case() {
+    let items = entries(&["A6 - Flaking", "Éclat"]);
+    assert_eq!(list_entry(&items, "a6 - flaking "), Some("A6 - Flaking".to_string()));
+    assert_eq!(list_entry(&items, "eclat"), Some("Éclat".to_string()));
+    assert_eq!(list_entry(&items, "a6"), None);
+    assert_eq!(list_entry(&items, ""), None);
+}
+
 #[test]
 fn filter_blanks_include_empty_text_and_formula_results() {
     let mut s = Session::new();

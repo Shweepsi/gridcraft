@@ -38,6 +38,7 @@ use insert::{draw, insert};
 use page_layout::page_layout;
 use review::review;
 pub use shortcuts::shortcut;
+use title_bar::undo_redo;
 pub use title_bar::{MAC_CONTENT_LEFT, MAC_TITLE_BAR, TITLE_LEFT_PAD, title_bar};
 use title_bar::{TITLE_BAR_H, TITLE_CONTROL_H};
 use view::view;
@@ -46,6 +47,12 @@ pub const TABS: &[&str] = &["Home", "Insert", "Draw", "Page Layout", "Formulas",
 const _: () = assert!(TITLE_CONTROL_H < TITLE_BAR_H, "title-bar controls keep a margin above and below");
 
 /// Draws the ribbon tabs and the active tab's horizontally scrollable card, resetting an unavailable contextual tab to Home.
+/// Whether a (non-contextual) ribbon tab is shown: all are, unless the page narrowed them.
+fn tab_shown(app: &SheetApp, tab: &str) -> bool {
+    let key = tab.to_lowercase().replace(' ', "");
+    app.ui.ribbon_tabs.as_ref().is_none_or(|shown| shown.contains(&key))
+}
+
 pub fn show(app: &mut SheetApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let collapsed = app.ui.ribbon_collapsed;
@@ -68,7 +75,7 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                     if app.chrome.file_tab {
                         file_menu(app, ui);
                     }
-                    let mut tabs: Vec<&str> = TABS.to_vec();
+                    let mut tabs: Vec<&str> = TABS.iter().copied().filter(|tab| tab_shown(app, tab)).collect();
                     let ctx_tabs = contextual_tabs(app);
                     tabs.extend(ctx_tabs.iter());
                     for tab in tabs {
@@ -109,6 +116,12 @@ pub fn show(app: &mut SheetApp, ui: &mut Ui) {
                         {
                             keytip(app, ui, sequence, pos2(r.center().x, r.bottom() - 1.0));
                         }
+                    }
+                    // No title bar (embedded): its Undo and Redo move to the end of this row.
+                    if !app.chrome.title_bar {
+                        let w = 26.0 + 14.0 + 26.0 + 2.0 * 2.0 + 8.0;
+                        ui.add_space((ui.available_width() - w).max(0.0));
+                        undo_redo(app, ui, TITLE_CONTROL_H);
                     }
                 });
             });

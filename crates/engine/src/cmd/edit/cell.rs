@@ -64,6 +64,13 @@ pub(crate) fn input_to_cell(input: &str, sheet: usize, at: CellRef, wb: &mut gri
         }
         return Ok(Some(cell));
     }
+    // A cell formatted as a date reads a typed date in that format's order ("16/10/26" in a
+    // "dd/mm/yy" cell is 16 October), short forms included ("1610", "16"), and keeps its format.
+    if let Some(day_first) = crate::display::date_day_first(wb.styles.get(style).num_fmt.as_str())
+        && let Some(n) = gridcraft_core::parse::parse_date_entry(input, wb.date_system, day_first)
+    {
+        return Ok(Some(Cell { value: Value::Number(n), formula: None, style, py: None }));
+    }
     let mut parsed = gridcraft_core::parse::parse_input(input, wb.date_system);
     // Like Excel's automatic percent entry: a bare number of 1 or more typed into a cell already
     // formatted as a percentage is a percent (3 -> 3%); smaller numbers are taken as fractions.

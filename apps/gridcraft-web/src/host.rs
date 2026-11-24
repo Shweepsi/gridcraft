@@ -30,6 +30,7 @@ use craft_web_host::web::{FileData, Host, Message};
 use gridcraft_ui_egui::{Inbox, Services, SheetApp};
 
 use crate::hostmode::open_name;
+use crate::shared::Shared;
 
 /// The app id in the host messages (`gridcraft:ready`).
 const APP: &str = "gridcraft";
@@ -46,6 +47,8 @@ const MAX_AUTHOR_CHARS: usize = 200;
 #[derive(Clone)]
 pub struct Bridge {
     host: Rc<Host>,
+    /// Shared workbooks (`crate::shared`), only with `?host=parent`.
+    shared: Option<Shared>,
     /// Names of the files handed to the host since the last frame.
     saved: Rc<RefCell<Vec<String>>>,
 }
@@ -55,12 +58,15 @@ impl Bridge {
     /// `data-host="page"` on the canvas, an unframed `?host=parent` page (it stays the normal app
     /// with downloads), or a parent on another origin.
     pub fn detect(canvas: &web_sys::HtmlCanvasElement) -> Option<Self> {
-        Some(Self { host: Rc::new(Host::connect(APP, canvas)?), saved: Rc::default() })
+        Some(Self { host: Rc::new(Host::connect(APP, canvas)?), shared: Shared::detect(), saved: Rc::default() })
     }
 
     /// Send saved and exported files to the host instead of downloading them, and hear files
     /// from it.
     pub fn connect(&self, services: &mut Services, inbox: Inbox, ctx: egui::Context) {
+        if let Some(shared) = &self.shared {
+            shared.listen(ctx.clone());
+        }
         self.listen(inbox, ctx);
         let bridge = self.clone();
         services.download = Some(Box::new(move |name: &str, bytes: &[u8]| {
@@ -78,6 +84,18 @@ impl Bridge {
         }
     }
 
+    /// The shared-workbook bridge, when the page is framed by a same-origin parent.
+    pub fn shared(&self) -> Option<&Shared> {
+        self.shared.as_ref()
+    }
+
+    /// Before each frame: what the parent asked for since the last one (theme, selection).
+    pub fn before_frame(&self, app: &mut SheetApp) {
+        if let Some(shared) = &self.shared {
+            shared.before_frame(app);
+        }
+    }
+
     pub fn post_ready(&self) {
         let _ = self.host.post_ready(env!("CARGO_PKG_VERSION"), false);
     }
@@ -90,6 +108,9 @@ impl Bridge {
     /// name it was saved as, and the host hears when unsaved changes appear or go away (the
     /// crate does not repeat a state it already reported).
     pub fn sync(&self, app: &mut SheetApp) {
+        if let Some(shared) = &self.shared {
+            shared.sync(app);
+        }
         let saved = std::mem::take(&mut *self.saved.borrow_mut());
         if let Some(name) = saved.iter().rev().find(|name| is_workbook(name))
             && let Some(doc) = app.session.active_mut()

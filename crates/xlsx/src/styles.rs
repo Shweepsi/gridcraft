@@ -400,7 +400,7 @@ pub fn read_styles(root: &El, checkboxes: &[bool], minor_font: &str) -> StylesIn
 }
 
 /// One differential format (`dxf`): the style it sets over a cell's own.
-fn read_dxf<'a>(x: &'a El, palette: &[u32], fmts: &HashMap<u32, NumFmt>, inline_fmts: &mut HashMap<&'a str, NumFmt>) -> Style {
+pub(crate) fn read_dxf<'a>(x: &'a El, palette: &[u32], fmts: &HashMap<u32, NumFmt>, inline_fmts: &mut HashMap<&'a str, NumFmt>) -> Style {
     let mut s = Style::default();
     if let Some(e) = x.child("font") {
         let f = read_font(e, palette);

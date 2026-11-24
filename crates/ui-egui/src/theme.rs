@@ -31,6 +31,8 @@ use font_fallback::{
 };
 #[cfg(all(test, unix, not(target_os = "macos")))]
 use font_fallback::{covers_arabic, fontconfig_arabic, parse_fc_match};
+#[cfg(target_arch = "wasm32")]
+pub use font_setup::add_web_font;
 use font_setup::pick;
 pub use font_setup::{
     CELL, CELL_BOLD, CELL_BOLD_ITALIC, CELL_ITALIC, CraftFont, HanOrder, MATH, MATH_BOLD, MATH_ITALIC, MONO, SERIF, UI, UI_BOLD, available_text,

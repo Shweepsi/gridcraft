@@ -312,6 +312,7 @@ impl<F: Fn(&mut SheetApp, egui::Vec2) -> Geo> ActiveCellVisibility<'_, F> {
 
         app.grid.ensure_visible = false;
         let moving = std::mem::take(&mut app.grid.reveal_moving_end);
+        let centered = std::mem::take(&mut app.grid.reveal_centered);
         let cell = if moving { sel.moving_end() } else { sel.active };
         let from = app.grid.reveal_from.take();
         let target = app.editor.as_ref().and_then(|e| e.point_cell).unwrap_or(cell);
@@ -328,7 +329,10 @@ impl<F: Fn(&mut SheetApp, egui::Vec2) -> Geo> ActiveCellVisibility<'_, F> {
         let cr = geo.cell_rect(sh, target);
         let area = Rect::from_min_max(pos2(geo.cells.left() + geo.frozen_w, geo.cells.top() + geo.frozen_h), geo.cells.max);
         if target.row >= geo.fr {
-            if cr.top() < area.top() {
+            // Well inside: a row's height clear of either edge.
+            if centered && (cr.top() < area.top() + cr.height() || cr.bottom() > area.bottom() - cr.height()) {
+                view.scroll.y += (cr.center().y - area.center().y) / geo.z;
+            } else if cr.top() < area.top() {
                 view.scroll.y -= (area.top() - cr.top()) / geo.z;
             } else if cr.bottom() > area.bottom() - 2.0 {
                 view.scroll.y += (cr.bottom() - area.bottom() + 2.0) / geo.z;

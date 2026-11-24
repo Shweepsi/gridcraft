@@ -248,6 +248,9 @@ pub struct GridState {
     /// With `ensure_visible`: scroll to the moving end of the selection instead of the active cell
     /// (Shift/Ctrl+Shift+arrows keep the active cell on the anchor while the far corner moves).
     pub reveal_moving_end: bool,
+    /// With `ensure_visible`: bring a row that isn't well inside the view to its middle, rather
+    /// than just past its edge (a host page pointing at a cell, which should stand out).
+    pub reveal_centered: bool,
     /// With `ensure_visible`: the cell an arrow or paging key moved from (the moving end when
     /// extending), set only by those keys. A move from the scrolled rows or columns into the
     /// frozen ones scrolls them back to their top or left.

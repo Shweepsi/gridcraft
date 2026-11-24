@@ -210,6 +210,9 @@ fn undo(s: &mut Session, p: &Json) -> Result<Json> {
     }
     super::extra::keep_watch_list(&now, &mut d.wb);
     d.calc.rebuild(&d.wb);
+    if d.shared {
+        d.calc.recalc_all(std::sync::Arc::make_mut(&mut d.wb));
+    }
     d.revision += 1;
     Ok(json!({"undone": label}))
 }
@@ -231,6 +234,9 @@ fn redo(s: &mut Session, p: &Json) -> Result<Json> {
     }
     super::extra::keep_watch_list(&now, &mut d.wb);
     d.calc.rebuild(&d.wb);
+    if d.shared {
+        d.calc.recalc_all(std::sync::Arc::make_mut(&mut d.wb));
+    }
     d.revision += 1;
     Ok(json!({"redone": label}))
 }

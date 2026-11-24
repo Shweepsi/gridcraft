@@ -95,6 +95,11 @@ pub struct UiState {
     /// Expanding it again (the chevron, Ctrl+Shift+U) returns to that height.
     pub formula_bar_lines: usize,
     pub status_bar: bool,
+    /// The ribbon tabs shown, as lower-case names without spaces (`home`, `pagelayout`…); `None`
+    /// shows them all. A page embedding the web build narrows them (`?tabs=home,data,view`).
+    /// Contextual tabs (Table Design, Chart Design…) show whenever they apply.
+    #[serde(skip)]
+    pub ribbon_tabs: Option<Vec<String>>,
     /// Motion in the UI: the selection outline glides to a new selection (View ▸ Animations).
     pub animations: bool,
     /// Enable AutoComplete for cell values (File ▸ Options ▸ Editing): typed text is completed
@@ -152,6 +157,7 @@ impl Default for UiState {
             formula_bar_expanded: false,
             formula_bar_lines: formula_bar::MAX_LINES,
             status_bar: true,
+            ribbon_tabs: None,
             animations: true,
             autocomplete: true,
             highlight_active_row: false,

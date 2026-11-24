@@ -376,6 +376,9 @@ pub struct Ctx<'a> {
     /// The command applied sheet protection itself (row/column inserts and deletes the
     /// protection allows), so cells it shifts aren't refused as edits of locked cells.
     pub protection_checked: bool,
+    /// The edit comes from another copy of a shared workbook (`collab::apply`), whose array
+    /// formulas were checked where it was made.
+    pub arrays_checked: bool,
     /// The structural edits the command made, in order (the sheet's name, the edit), as
     /// references were rewritten for them.
     pub edits: Vec<(String, gridcraft_formula::adjust::Edit)>,
@@ -408,17 +411,18 @@ pub(crate) fn commit<R>(d: &mut DocState, f: impl FnOnce(&mut Ctx) -> Result<R>)
         sel: &mut sel,
         fit_rows: Vec::new(),
         protection_checked: false,
+        arrays_checked: false,
         edits: Vec::new(),
     };
     let r = f(&mut ctx)?;
-    let Ctx { mut wb, mut changed, structural, recalc_all, mut fit_rows, protection_checked, edits, .. } = ctx;
+    let Ctx { mut wb, mut changed, structural, recalc_all, mut fit_rows, protection_checked, arrays_checked, edits, .. } = ctx;
     // Equations whose source changed (or that arrived without a layout, as from a paste) are
     // laid out here, so painting only ever reads the cache.
     wb.refresh_equations();
     if !protection_checked {
         check_protection(&d.wb, &wb, &d.unlocked_ranges)?;
     }
-    if !structural {
+    if !structural && !arrays_checked {
         check_arrays(&d.wb, &wb)?;
     }
     if wb.calc.precision_as_displayed {

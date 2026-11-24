@@ -221,6 +221,61 @@ pub fn list_items(wb: &Workbook, sheet: usize, at: CellRef, dv: &Validation) -> 
     }
 }
 
+/// Text folded for matching list entries: lower case, without accents ("Éclat" ~ "eclat").
+fn fold(s: &str) -> String {
+    s.chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| match c {
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+            'ç' => 'c',
+            'è' | 'é' | 'ê' | 'ë' => 'e',
+            'ì' | 'í' | 'î' | 'ï' => 'i',
+            'ñ' => 'n',
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' => 'o',
+            'ù' | 'ú' | 'û' | 'ü' => 'u',
+            'ý' | 'ÿ' => 'y',
+            c => c,
+        })
+        .collect()
+}
+
+fn words(s: &str) -> Vec<String> {
+    fold(s).split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_string).collect()
+}
+
+/// The list entries that `typed` points to, best first: each typed word starts one of the
+/// entry's words, whatever the case and accents ("flak" → "A6 - Flaking", "raw lami" → "D3 - All
+/// Raw Glass - Lami Defects"). Entries starting with the whole typed text come first.
+pub fn list_suggestions(items: &[String], typed: &str) -> Vec<String> {
+    let want = words(typed);
+    if want.is_empty() {
+        return vec![];
+    }
+    let whole = fold(typed.trim());
+    let mut hits: Vec<(bool, &String)> = items
+        .iter()
+        .filter(|it| {
+            let have = words(it);
+            !have.is_empty() && want.iter().all(|w| have.iter().any(|h| h.starts_with(w.as_str())))
+        })
+        .map(|it| (!fold(it.trim()).starts_with(&whole), it))
+        .collect();
+    hits.sort_by_key(|(later, _)| *later);
+    let mut out: Vec<String> = Vec::new();
+    for (_, it) in hits {
+        if !out.contains(it) {
+            out.push(it.clone());
+        }
+    }
+    out
+}
+
+/// The list entry `typed` is, whatever its case and accents.
+pub fn list_entry(items: &[String], typed: &str) -> Option<String> {
+    let t = fold(typed.trim());
+    items.iter().find(|it| !t.is_empty() && fold(it.trim()) == t).cloned()
+}
+
 /// Checks typed input against the validation of a cell. `Ok(None)` = valid.
 pub fn check_validation(wb: &Workbook, sheet: usize, at: CellRef, input: &str) -> Option<(Validation, String)> {
     let sh = wb.sheet(sheet)?;

@@ -593,6 +593,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
         if app.ui.autocomplete
             && !ed.is_formula()
             && !ed.python
+            && ed.list.is_none()
             && !entry_shrank(chars_before, &ed.text)
             && ed.caret == ed.text.chars().count()
             && let Some(sh) = app.session.active().and_then(|d| d.wb.sheet(ed.sheet))
@@ -610,6 +611,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
             })
             .collect();
         ed.update_autocomplete(&names);
+        ed.update_list_suggestions();
         app.session.mode = if ed.can_point() {
             gridcraft_engine::Mode::Point
         } else if ed.enter_mode {
@@ -620,6 +622,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
     }
     show_editor_suggestions(ui, EditorSuggestion { app, id, resp: &resp, ed: &mut ed, galley: &output.galley, tokens: &t, mine });
     let lines = output.galley.rows.len().max(1);
+    let picked_entry = std::mem::take(&mut ed.picked);
     let caret = Some(output.galley.pos_from_cursor(egui::text::CCursor::new(ed.caret)).translate(output.galley_pos.to_vec2()));
     if to_python && !app.draft_in_spill(&ed) {
         ed.enter_python();
@@ -630,7 +633,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
     app.editor = Some(ed);
     if cancel {
         app.cancel_edit();
-    } else if let Some((dr, dc, array, fill)) = action {
+    } else if let Some((dr, dc, array, fill)) = action.or(picked_entry.then_some((0, 0, false, false))) {
         if arrow {
             app.commit_edit_arrow(dr, dc);
         } else {
@@ -702,8 +705,10 @@ fn editor_confirm_keys(ui: &mut egui::Ui, ed: &mut crate::editor::EditState) -> 
     let mut action = if py_trigger {
         None
     } else if !ed.autocomplete.is_empty() && tab {
+        let list = ed.list_mode();
         ed.accept_autocomplete();
-        None
+        // A drop-down list entry is the whole value: Tab enters it and moves on, as with typed text.
+        list.then_some((0, if shift { -1 } else { 1 }, false, false))
     } else if enter {
         Some((if shift { -1 } else { 1 }, 0, false, false))
     } else if tab {
@@ -761,6 +766,7 @@ fn editor_arrow_keys(
         });
         let n = ed.autocomplete.len();
         ed.ac_index = if down { (ed.ac_index + 1) % n } else { (ed.ac_index + n - 1) % n };
+        ed.ac_moved = true;
         return (action, false);
     }
     if !ed.enter_mode || (!up && !down && !left && !right) || ed.from_formula_bar {
@@ -1167,16 +1173,16 @@ fn show_editor_suggestions(ui: &mut egui::Ui, suggestion: EditorSuggestion<'_>) 
         let language = app.ui.language;
         // Areas have their own clip rect: keep cell helpers inside the worksheet.
         let bounds = if ed.from_formula_bar { ui.ctx().content_rect() } else { ui.clip_rect() };
+        let list = ed.list_mode();
         egui::Area::new(id.with("ac")).fixed_pos(below).constrain_to(bounds).order(egui::Order::Tooltip).show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).inner_margin(4.0).show(ui, |ui| {
                 if !ed.autocomplete.is_empty() {
                     let mut pick = None;
                     for (i, n) in ed.autocomplete.iter().enumerate() {
                         let sel = i == ed.ac_index;
-                        let r = ui.add(
-                            egui::Button::selectable(sel, egui::RichText::new(format!("ƒ  {n}")).font(theme::ui_font(12.5)))
-                                .min_size(vec2(220.0, 20.0)),
-                        );
+                        let label = if list { n.clone() } else { format!("ƒ  {n}") };
+                        let r =
+                            ui.add(egui::Button::selectable(sel, egui::RichText::new(label).font(theme::ui_font(12.5))).min_size(vec2(220.0, 20.0)));
                         if r.clicked() {
                             pick = Some(i);
                         }
@@ -1192,6 +1198,8 @@ fn show_editor_suggestions(ui: &mut egui::Ui, suggestion: EditorSuggestion<'_>) 
                         ed.ac_index = i;
                         ed.accept_autocomplete();
                         ed.request_focus = true;
+                        // Clicking a drop-down list entry enters it.
+                        ed.picked |= list;
                     }
                 } else if let Some((name, arg)) = ed.current_function()
                     && let Some(sig) = crate::formula_locale::signature(&name, ed.locale, language)

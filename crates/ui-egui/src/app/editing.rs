@@ -71,8 +71,13 @@ impl SheetApp {
         let mut ed = editor::EditState::new(d.uid, d.wb.active_sheet(), at, text, replace, from_formula_bar).on_sheet(&d.wb);
         ed.window = self.session.active_window();
         ed.locale = locale;
-        if replace && self.ui.autocomplete && !ed.is_formula() {
+        // A drop-down list suggests its own entries instead of the column's.
+        ed.list = editor::list_entries(&d.wb, d.wb.active_sheet(), at);
+        if replace && self.ui.autocomplete && !ed.is_formula() && ed.list.is_none() {
             ed.completion = editor::column_completion(sh, at, &ed.text);
+        }
+        if replace {
+            ed.update_list_suggestions();
         }
         self.editor = Some(ed);
         self.session.mode = if replace { gridcraft_engine::Mode::Enter } else { gridcraft_engine::Mode::Edit };
@@ -133,6 +138,23 @@ impl SheetApp {
             return ok;
         }
         let Some(mut ed) = self.editor.take() else { return true };
+        // A drop-down list cell takes the entry the text points to ("flaking" → "A6 - Flaking").
+        // With several, the suggestions stay open until one is picked.
+        match ed.list_commit() {
+            editor::ListCommit::Entry(entry) => {
+                ed.text = entry;
+                ed.completion = None;
+            }
+            editor::ListCommit::Typed => {}
+            editor::ListCommit::Choose => {
+                if ed.autocomplete.is_empty() {
+                    ed.update_list_suggestions();
+                }
+                ed.request_focus = true;
+                self.editor = Some(ed);
+                return false;
+            }
+        }
         self.session.mode = gridcraft_engine::Mode::Ready;
         if !self.follow_draft_sheet(&mut ed) {
             return true;

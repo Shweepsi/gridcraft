@@ -30,6 +30,43 @@ pub(super) const TITLE_BAR_H: f32 = if MAC { MAC_TITLE_BAR } else { 38.0 };
 /// The tallest title-bar controls, smaller on macOS to keep a margin in the shorter bar.
 pub(super) const TITLE_CONTROL_H: f32 = if MAC { 22.0 } else { 26.0 };
 
+/// Undo (with its history list) and Redo: the title bar's quick access, or, in a page that hides
+/// the title bar (`Chrome`), the end of the ribbon's tab row.
+pub(super) fn undo_redo(app: &mut SheetApp, ui: &mut Ui, ch: f32) {
+    let t = Tokens::get(ui.ctx());
+    // The commands' own availability: there must be a step, and no undo group may be open on
+    // the document (an action that spans several calls is still running).
+    let can_undo = gridcraft_engine::cmd::can_undo(&app.session).is_ok();
+    let can_redo = gridcraft_engine::cmd::can_redo(&app.session).is_ok();
+    // Named and marked enabled or not for assistive technology (and the UI tests).
+    let undo = icon_button(ui, Icon::Undo, if can_undo { t.text_dim } else { t.text_disabled }, "Undo", vec2(26.0, ch));
+    undo.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, can_undo, "Undo"));
+    if undo.clicked() && can_undo {
+        app.run_or_alert("edit.undo", json!({}));
+    }
+    let undo_list = icon_button(ui, Icon::Chevron, t.text_dim, "Undo list", vec2(14.0, ch));
+    egui::Popup::menu(&undo_list).show(|ui| {
+        let labels: Vec<String> = if can_undo {
+            app.session.active().map(|d| d.undo.iter().rev().take(20).map(|e| e.label.clone()).collect()).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        if labels.is_empty() {
+            ui.label("Can't Undo");
+        }
+        for (i, l) in labels.iter().enumerate() {
+            if ui.button(format!("Undo {l}")).clicked() {
+                app.run_or_alert("edit.undo", json!({"steps": i + 1}));
+            }
+        }
+    });
+    let redo = icon_button(ui, Icon::Redo, if can_redo { t.text_dim } else { t.text_disabled }, "Redo", vec2(26.0, ch));
+    redo.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, can_redo, "Redo"));
+    if redo.clicked() && can_redo {
+        app.run_or_alert("edit.redo", json!({}));
+    }
+}
+
 /// Draws the title bar: drag/maximize, AutoSave toggle, Home/Save/Undo/Redo/More, search, share, comments and theme controls, with a centered truncated title.
 pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
@@ -70,37 +107,7 @@ pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
             {
                 app.run_or_alert("file.save", json!({}));
             }
-            // The commands' own availability: there must be a step, and no undo group may be open on
-            // the document (an action that spans several calls is still running).
-            let can_undo = gridcraft_engine::cmd::can_undo(&app.session).is_ok();
-            let can_redo = gridcraft_engine::cmd::can_redo(&app.session).is_ok();
-            // Named and marked enabled or not for assistive technology (and the UI tests).
-            let undo = icon_button(ui, Icon::Undo, if can_undo { t.text_dim } else { t.text_disabled }, "Undo", vec2(26.0, ch));
-            undo.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, can_undo, "Undo"));
-            if undo.clicked() && can_undo {
-                app.run_or_alert("edit.undo", json!({}));
-            }
-            let undo_list = icon_button(ui, Icon::Chevron, t.text_dim, "Undo list", vec2(14.0, ch));
-            egui::Popup::menu(&undo_list).show(|ui| {
-                let labels: Vec<String> = if can_undo {
-                    app.session.active().map(|d| d.undo.iter().rev().take(20).map(|e| e.label.clone()).collect()).unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                if labels.is_empty() {
-                    ui.label("Can't Undo");
-                }
-                for (i, l) in labels.iter().enumerate() {
-                    if ui.button(format!("Undo {l}")).clicked() {
-                        app.run_or_alert("edit.undo", json!({"steps": i + 1}));
-                    }
-                }
-            });
-            let redo = icon_button(ui, Icon::Redo, if can_redo { t.text_dim } else { t.text_disabled }, "Redo", vec2(26.0, ch));
-            redo.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, can_redo, "Redo"));
-            if redo.clicked() && can_redo {
-                app.run_or_alert("edit.redo", json!({}));
-            }
+            undo_redo(app, ui, ch);
             let more = icon_button(ui, Icon::More, t.text_dim, "More commands", vec2(26.0, ch));
             egui::Popup::menu(&more).show(|ui| {
                 for (label, id) in [

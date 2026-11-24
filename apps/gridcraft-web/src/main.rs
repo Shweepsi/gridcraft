@@ -16,6 +16,8 @@
 //! `window.gridcraft` (`craft-web-api`) is the page command API in every mode: `request`,
 //! `execute`, `commands`, `docInspect`, `uiInspect` and `screenshot` over the control methods
 //! (`api`).
+//! Page-embedding options (`?titlebar=0`, `?tabs=`, `?theme=`, `?lang=`…) are in `embed`, shared
+//! workbooks (several copies of one, edited cell by cell) in `shared`.
 //! `?chrome=none|notitlebar|nofiletab` leaves the title bar and/or the File tab undrawn for a host
 //! that embeds the sheet in its own window (see `Chrome`). Preferences (theme, interface size,
 //! editing options…) are kept in `localStorage` (`prefs`).
@@ -24,11 +26,15 @@
 #[cfg(any(target_arch = "wasm32", test))]
 mod api;
 #[cfg(target_arch = "wasm32")]
+mod embed;
+#[cfg(target_arch = "wasm32")]
 mod host;
 #[cfg(any(target_arch = "wasm32", test))]
 mod hostmode;
 #[cfg(any(target_arch = "wasm32", test))]
 mod prefs;
+#[cfg(target_arch = "wasm32")]
+mod shared;
 #[cfg(target_arch = "wasm32")]
 mod web;
 

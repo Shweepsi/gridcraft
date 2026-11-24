@@ -11,6 +11,7 @@ pub mod cf;
 mod chart_svg;
 mod clip_html;
 pub mod cmd;
+pub mod collab;
 pub mod display;
 pub mod fill;
 pub mod io;
@@ -205,6 +206,9 @@ pub struct DocState {
     /// The format `path`'s content was recognised as when its extension doesn't name one (an
     /// XLSX called `budget.dat`): Save writes it back in that format.
     pub content_kind: Option<io::FileKind>,
+    /// Another copy of this workbook has written into it ([`collab::apply`]): history steps were
+    /// rebased onto those cells without recalculating, so restoring one recalculates.
+    pub shared: bool,
     /// Whether the scripts stored in this workbook may run (`automate.runScript`). A workbook
     /// that arrives already carrying scripts (opened from a file) starts untrusted until the
     /// user trusts it in this session (`automate.trustScripts`); one with no scripts starts
@@ -342,6 +346,7 @@ impl DocState {
             sheet_selections: vec![],
             unlocked_ranges: vec![],
             content_kind: None,
+            shared: false,
             scripts_trusted,
             trust,
             touched: None,
@@ -583,6 +588,10 @@ impl Session {
     }
     pub fn doc(&self) -> Result<&DocState> {
         self.active().ok_or(EngineError::NoDocument)
+    }
+    /// The document with this [`DocState::uid`], active or not.
+    pub fn doc_by_uid_mut(&mut self, uid: u64) -> Option<&mut DocState> {
+        self.docs.iter_mut().find(|d| d.uid == uid)
     }
     pub fn doc_mut(&mut self) -> Result<&mut DocState> {
         self.active_mut().ok_or(EngineError::NoDocument)
